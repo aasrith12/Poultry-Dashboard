@@ -1,0 +1,57 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block content %}
+<div class="mx-auto max-w-md">
+  <div class="bg-white border border-auburn/40 rounded-2xl shadow-sm p-8">
+    <h2 class="text-2xl font-semibold text-auburn text-center">Log in</h2>
+
+    <form id="blu-login-form" class="mt-6 space-y-4 text-auburn" novalidate>
+      <div>
+        <label class="block text-sm font-medium text-auburn mb-1">
+          BluConsole Username
+        </label>
+        <input
+          type="text"
+          name="uname"
+          placeholder="BluConsole uname"
+          class="w-full rounded-lg border bg-white px-3 py-2 text-brick caret-brick placeholder-slate-400 focus:outline-none border-auburn/40 focus:ring-2 focus:ring-auburn"
+        />
+        <p class="mt-1 text-sm text-red-600 hidden" data-error="uname"></p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-auburn mb-1">
+          BluConsole Password
+        </label>
+        <input
+          type="password"
+          name="upass"
+          placeholder="BluConsole upass"
+          class="w-full rounded-lg border bg-white px-3 py-2 text-brick caret-brick placeholder-slate-400 focus:outline-none border-auburn/40 focus:ring-2 focus:ring-auburn"
+        />
+        <p class="mt-1 text-sm text-red-600 hidden" data-error="upass"></p>
+      </div>
+
+      <p class="text-sm text-center hidden" id="blu-status"></p>
+
+      <button
+        type="submit"
+        class="w-full rounded-xl bg-auburn text-white py-2 shadow transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-auburn hover:brightness-110 hover:-translate-y-0.5 active:translate-y-0"
+      >
+        Sign in
+      </button>
+    </form>
+
+    <p class="mt-4 text-sm text-slate-600 text-center">
+      Don't have BluConsole access?
+      <a href="{% url 'faq' %}" class="text-auburn underline hover:no-underline">
+        See FAQ
+      </a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'dashboard/js/login.js' %}"></script>
+{% endblock %}

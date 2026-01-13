@@ -1,0 +1,75 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{ title|default:"Poultry Dashboard" }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              auburn: "#0b2341",
+              brick: "#ea711a",
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="{% static 'dashboard/css/site.css' %}" />
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body class="min-h-screen w-full bg-gray-50 text-slate-900">
+    <div class="min-h-screen w-full bg-gray-50 text-slate-900 flex">
+      <aside class="w-60 bg-auburn text-white sticky top-0 h-[100dvh] flex flex-col">
+        <div class="px-4 py-4 text-lg font-semibold text-brick">
+          Auburn University
+        </div>
+
+        <nav class="px-2 space-y-1 overflow-y-auto flex-1">
+          {% with path=request.path %}
+          <a href="{% url 'home' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">Home</a>
+          <a href="{% url 'sensor_feed' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/sensor-feed/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">Sensor Feed</a>
+          <a href="{% url 'visualizations' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/visualizations/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">Visualizations</a>
+          <a href="{% url 'ai' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/ai/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">AI Estimation</a>
+          <a href="{% url 'faq' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/faq/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">FAQ</a>
+          {% endwith %}
+        </nav>
+
+        <footer class="px-4 py-3 text-xs text-white/80 mt-auto border-t border-white/10">
+          <a href="{% url 'profile' %}" class="hover:underline">Profile</a>
+          <span class="mx-1">|</span>
+          <button type="button" class="hover:underline" data-bu-logout>Log out</button>
+          <span class="mx-1">|</span>
+          <a href="{% url 'contact' %}" class="hover:underline">Contact us</a>
+        </footer>
+      </aside>
+
+      <div class="flex-1 flex flex-col">
+        <header class="sticky top-0 z-10 bg-white border-b w-full">
+          <div class="relative flex items-center px-6 h-14 w-full">
+            <h3 class="absolute left-1/2 -translate-x-1/2 whitespace-nowrap truncate max-w-[calc(100%-6rem)] text-auburn font-semibold text-xl md:text-2xl">
+              Auburn University - College of Agriculture
+            </h3>
+            <a href="{% url 'profile' %}" class="ml-auto" aria-label="Open profile">
+              <img
+                src="{% static 'dashboard/img/icons8-user-48.png' %}"
+                alt="Profile"
+                class="h-8 w-8 rounded-full ring-2 ring-auburn object-cover"
+              />
+            </a>
+          </div>
+        </header>
+
+        <main class="p-6 flex-1">
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+
+    <script src="{% static 'dashboard/js/app.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>

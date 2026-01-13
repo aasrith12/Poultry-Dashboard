@@ -1,0 +1,81 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block content %}
+<div class="mx-auto max-w-5xl">
+  <div class="bg-white border rounded-2xl shadow-sm p-8">
+    <div id="home-header-authed" class="hidden">
+      <h2 class="text-2xl font-semibold text-auburn text-center">
+        <span id="home-greeting"></span> <span id="home-name"></span>
+      </h2>
+      <p class="mt-2 text-slate-600 text-center">
+        Welcome to the Poultry Science Sensor Dashboard. View live data and charts on the Sensor Feed.
+      </p>
+      <div class="mt-6 flex items-center justify-center">
+        <a
+          href="{% url 'sensor_feed' %}"
+          class="px-5 py-2 rounded-lg bg-auburn text-white hover:brightness-110 transition"
+        >
+          Go to Sensor Feed
+        </a>
+      </div>
+    </div>
+    <div id="home-header-guest" class="hidden">
+      <h2 class="text-2xl font-semibold text-auburn text-center">
+        Poultry Science Sensor Dashboard
+      </h2>
+      <p class="mt-2 text-slate-600 text-center">
+        Log in with your BluConsole credentials to view live sensor feeds, charts, and AI shelf-life estimates.
+      </p>
+      <div class="mt-6 flex items-center justify-center gap-3">
+        <a
+          href="{% url 'login' %}"
+          class="px-5 py-2 rounded-lg bg-auburn text-white hover:brightness-110 transition"
+        >
+          Login
+        </a>
+        <a
+          href="{% url 'signup' %}"
+          class="px-5 py-2 rounded-lg bg-auburn text-white hover:brightness-110 transition"
+        >
+          Sign up
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div id="home-alerts" class="mt-6 bg-white border border-auburn/30 rounded-2xl shadow-sm p-6 hidden">
+    <div class="flex items-center justify-between">
+      <h3 class="text-lg font-semibold text-auburn">Quick Alerts</h3>
+      <span class="text-sm text-slate-500" id="alerts-loading"></span>
+      <span class="text-sm text-red-600" id="alerts-error"></span>
+    </div>
+
+    <div id="alerts-empty" class="mt-3 text-slate-600 hidden"></div>
+
+    <div id="alerts-grid" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+    <div class="mt-8">
+      <h3 class="text-lg font-semibold text-auburn mb-3">Sensor Status Overview</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border rounded-lg overflow-hidden">
+          <thead class="bg-auburn text-white">
+            <tr>
+              <th class="px-3 py-2 text-left">ID</th>
+              <th class="px-3 py-2 text-left">Location</th>
+              <th class="px-3 py-2 text-left">Battery</th>
+              <th class="px-3 py-2 text-left">Last Update</th>
+              <th class="px-3 py-2 text-left">Status</th>
+              <th class="px-3 py-2 text-left">Data Flow</th>
+            </tr>
+          </thead>
+          <tbody id="sensor-status-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'dashboard/js/home.js' %}"></script>
+{% endblock %}

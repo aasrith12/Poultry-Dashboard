@@ -1,0 +1,105 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block content %}
+<div class="mx-auto max-w-5xl space-y-6">
+  <section class="bg-white border border-auburn/30 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-start gap-6 flex-wrap">
+      <div class="flex flex-col items-center gap-3">
+        <div
+          id="profile-avatar"
+          class="h-20 w-20 rounded-full ring-2 ring-auburn bg-auburn/5 grid place-items-center text-auburn text-xl font-semibold overflow-hidden"
+        >
+          ?
+        </div>
+        <label class="inline-flex items-center gap-2 rounded-lg border border-auburn/40 px-3 py-1.5 text-auburn hover:bg-auburn/5 cursor-pointer">
+          <input type="file" accept="image/*" id="profile-photo-input" class="hidden" />
+          Upload photo
+        </label>
+      </div>
+
+      <form id="profile-form" class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-auburn mb-1">First name</label>
+          <input
+            name="firstName"
+            placeholder="First name"
+            class="w-full rounded-lg border border-auburn/40 bg-white px-3 py-2 text-brick caret-brick placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-auburn"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-auburn mb-1">Last name</label>
+          <input
+            name="lastName"
+            placeholder="Last name"
+            class="w-full rounded-lg border border-auburn/40 bg-white px-3 py-2 text-brick caret-brick placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-auburn"
+          />
+        </div>
+
+        <div class="md:col-span-2 flex items-center gap-3">
+          <button
+            type="submit"
+            class="rounded-lg bg-auburn text-white px-4 py-2 transition hover:brightness-110"
+          >
+            Save profile
+          </button>
+          <span id="profile-saved" class="text-sm text-green-700 hidden">Saved</span>
+        </div>
+      </form>
+    </div>
+
+    <div class="mt-4">
+      <h2 id="profile-name" class="text-xl font-semibold text-auburn">Your profile</h2>
+      <p id="profile-email" class="text-sm text-slate-600">Guest (BluConsole-only login)</p>
+    </div>
+  </section>
+
+  <section class="bg-white border border-auburn/30 rounded-2xl p-6 shadow-sm">
+    <div class="flex items-center justify-between gap-4">
+      <h3 id="note-heading" class="text-lg font-semibold text-auburn">Add a quick note</h3>
+      <span id="notes-saved" class="text-sm text-green-700 hidden">Saved</span>
+    </div>
+
+    <form id="note-form" class="mt-4 space-y-3">
+      <input
+        name="title"
+        placeholder="Title (e.g., Barn 3 morning checks)"
+        class="w-full rounded-lg border border-auburn/40 bg-white px-3 py-2 text-brick caret-brick placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-auburn"
+      />
+      <textarea
+        name="body"
+        placeholder="Write sensor readings, calculations, reminders"
+        rows="5"
+        class="w-full rounded-lg border border-auburn/40 bg-white px-3 py-2 text-brick caret-brick placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-auburn"
+      ></textarea>
+      <div class="flex items-center gap-3">
+        <button
+          type="submit"
+          class="rounded-lg bg-auburn text-white px-4 py-2 transition hover:brightness-110"
+        >
+          Save note
+        </button>
+        <button
+          type="button"
+          id="note-cancel"
+          class="rounded-lg border border-auburn/40 text-auburn px-3 py-2 hover:bg-auburn/5 hidden"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section class="space-y-3">
+    <div class="flex items-center justify-between">
+      <h3 class="text-lg font-semibold text-auburn">Your notes</h3>
+      <p id="notes-count" class="text-sm text-slate-500">0 notes</p>
+    </div>
+
+    <div id="notes-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'dashboard/js/profile.js' %}"></script>
+{% endblock %}

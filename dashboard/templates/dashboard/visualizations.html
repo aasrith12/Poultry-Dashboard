@@ -1,0 +1,69 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block content %}
+<div class="mx-auto max-w-[1400px]">
+  <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm px-4 py-3 mb-5">
+    <div class="flex items-center justify-between">
+      <div class="text-auburn font-semibold" id="live-title">BluConsole</div>
+      <button
+        id="live-refresh"
+        class="rounded-lg border border-auburn/40 px-3 py-1.5 text-auburn hover:bg-auburn/5 text-sm disabled:opacity-50 hidden"
+        title="Refresh"
+      >
+        Refresh
+      </button>
+    </div>
+    <div id="live-error" class="mt-2 text-red-600 text-sm hidden"></div>
+    <p id="live-empty" class="text-slate-600 mt-1 hidden">
+      No logger selected. Go back to <span class="text-auburn font-medium">Sensor Feed</span> and
+      click the chart icon in Actions.
+    </p>
+  </div>
+
+  <div id="live-card" class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-4 mb-6 hidden">
+    <div class="h-96">
+      <canvas id="live-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+    <section class="col-span-1 md:col-span-2" id="uploaded-chart">
+      <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-4">
+        <div class="flex items-center justify-between">
+          <h3 id="upload-title" class="text-auburn font-semibold">Uploaded dataset chart</h3>
+        </div>
+        <div id="upload-error" class="mt-2 text-red-600 text-sm hidden"></div>
+        <div id="upload-empty" class="h-64 flex items-center justify-center text-slate-600">
+          Pick a file from the right to render a chart.
+        </div>
+        <div id="upload-chart-wrap" class="h-96 mt-2 hidden">
+          <canvas id="upload-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <aside class="col-span-1 md:sticky md:top-4 h-fit">
+      <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-5">
+        <h3 class="text-lg font-semibold text-auburn">Upload history</h3>
+        <p id="upload-history-empty" class="mt-3 text-slate-600 text-sm">No uploads yet.</p>
+        <div id="upload-history-wrap" class="mt-3 overflow-auto max-h-[70vh] hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-auburn/5 text-auburn sticky top-0 z-10">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">File name</th>
+                <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Date, time</th>
+              </tr>
+            </thead>
+            <tbody id="upload-history-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{% static 'dashboard/js/visualizations.js' %}"></script>
+{% endblock %}

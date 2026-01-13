@@ -1,0 +1,141 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block content %}
+<div class="mx-auto max-w-[1400px]">
+  <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-4 mb-6">
+    <div class="flex items-center gap-3 justify-between">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-xl font-semibold text-auburn">BluConsole Dashboard</h1>
+        <span id="blu-status-badge" class="text-xs px-2 py-1 rounded-full border border-green-600 text-green-700">
+          Connected
+        </span>
+        <span id="last-refreshed" class="text-xs text-slate-500"></span>
+        <span id="live-loading" class="text-xs text-slate-500"></span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <label class="inline-flex items-center gap-2 rounded-lg border border-auburn/40 px-3 py-1.5 text-auburn hover:bg-auburn/5 cursor-pointer text-sm">
+          <input
+            type="file"
+            accept=".xlsx,.xlsm,.xlsb,.xls"
+            id="quick-upload"
+            class="hidden"
+          />
+          Quick Upload
+        </label>
+        <button
+          id="refresh-devices"
+          class="rounded-lg border border-auburn/40 px-3 py-1.5 text-auburn hover:bg-auburn/5 text-sm disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-4 w-full overflow-x-auto">
+      <table class="table-auto w-full text-sm">
+        <thead class="bg-auburn/5 text-auburn">
+          <tr>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Logger ID</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Type</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Label</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Current Temp (C)</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Humidity (%)</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Reading Time</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Min Temp</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Max Temp</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">VRN</th>
+            <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="devices-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm px-4 py-3 mb-5">
+    <div class="flex items-center gap-2 text-auburn md:whitespace-nowrap">
+      <span class="font-semibold">Manual Upload & Preview:</span>
+      <span class="text-slate-700">
+        Upload an Excel export from BluConsole (or any compatible sheet) to preview locally.
+      </span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+    <div class="col-span-1 md:col-span-2" id="manual-preview">
+      <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="inline-flex items-center gap-2 rounded-lg border border-auburn/40 px-4 py-2 text-auburn hover:bg-auburn/5 cursor-pointer">
+            <input
+              type="file"
+              accept=".xlsx,.xlsm,.xlsb,.xls"
+              id="manual-upload"
+              class="hidden"
+            />
+            Upload XLSX
+          </label>
+
+          <span id="loaded-file" class="text-sm text-slate-600 hidden"></span>
+
+          <button
+            id="clear-preview"
+            class="ml-auto rounded-lg border border-auburn/40 px-3 py-2 text-auburn hover:bg-auburn/5 hidden"
+          >
+            Clear preview
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 bg-white border border-auburn/30 rounded-2xl shadow-sm">
+        <div id="preview-empty" class="p-6 text-slate-600">
+          No data uploaded yet. Choose an Excel file to preview your sensor readings here, or click a
+          previous upload on the right to view it again.
+        </div>
+        <div id="preview-table-wrap" class="w-full overflow-x-auto hidden">
+          <div class="inline-block min-w-[1000px] align-middle">
+            <table class="table-auto w-full text-sm">
+              <thead id="preview-head" class="bg-auburn/5 text-auburn"></thead>
+              <tbody id="preview-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="col-span-1 md:sticky md:top-4 h-fit">
+      <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-auburn">Upload history</h3>
+          <button
+            id="clear-history"
+            class="text-xs rounded border border-auburn/40 px-2 py-1 text-auburn hover:bg-auburn/5 hidden"
+            title="Clear history"
+          >
+            Clear
+          </button>
+        </div>
+
+        <p id="history-empty" class="mt-3 text-slate-600 text-sm">No uploads yet.</p>
+
+        <div id="history-table-wrap" class="mt-3 overflow-auto max-h-[70vh] hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-auburn/5 text-auburn sticky top-0 z-10">
+              <tr>
+                <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">File name</th>
+                <th class="px-3 py-2 text-left font-semibold border-b border-auburn/20">Date, time</th>
+              </tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+<script src="{% static 'dashboard/js/sensor_feed.js' %}"></script>
+{% endblock %}
