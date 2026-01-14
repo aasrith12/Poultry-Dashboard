@@ -43,6 +43,7 @@ def _read_dotenv(path: Path) -> dict:
 
 
 ENV = _read_dotenv(BASE_DIR / ".env")
+ENV.update(_read_dotenv(BASE_DIR / "openAI.env"))
 BLU_BASE = (
     os.environ.get("BLU_BASE")
     or os.environ.get("VITE_BLU_BASE")
@@ -50,6 +51,7 @@ BLU_BASE = (
     or "https://http-receiver.bluconsole.com"
 )
 PROJECT_NAME = "Poultry Dashboard"
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or ENV.get("OPENAI_API_KEY", "")
 
 
 # Application definition

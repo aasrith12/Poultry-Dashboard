@@ -10,6 +10,7 @@ urlpatterns = [
     path("sensor-feed/", views.sensor_feed, name="sensor_feed"),
     path("visualizations/", views.visualizations, name="visualizations"),
     path("ai/", views.ai, name="ai"),
+    path("ai-chat/", views.ai_chat, name="ai_chat"),
     path("contact/", views.contact, name="contact"),
     # BluConsole API
     path("api/blu/login/", views.api_blu_login, name="api_blu_login"),
@@ -25,4 +26,6 @@ urlpatterns = [
     path("api/uploads/", views.api_uploads, name="api_uploads"),
     path("api/uploads/clear/", views.api_uploads_clear, name="api_uploads_clear"),
     path("api/uploads/<int:upload_id>/", views.api_upload_detail, name="api_upload_detail"),
+    path("api/ai-chat/", views.api_ai_chat, name="api_ai_chat"),
+    path("api/ai-chat/status/", views.api_ai_chat_status, name="api_ai_chat_status"),
 ]

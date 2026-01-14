@@ -5,6 +5,7 @@ from typing import Any
 
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.shortcuts import redirect, render
+from django.conf import settings
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
@@ -84,6 +85,12 @@ def visualizations(request):
 @_require_blu
 def ai(request):
     return render(request, "dashboard/ai.html")
+
+
+@ensure_csrf_cookie
+@_require_blu
+def ai_chat(request):
+    return render(request, "dashboard/ai_chat.html")
 
 
 @ensure_csrf_cookie
@@ -287,5 +294,31 @@ def api_upload_detail(request, upload_id: int):
                 "row_count": upload.row_count,
                 "created_at": upload.created_at,
             }
+        }
+    )
+
+
+@require_http_methods(["POST"])
+def api_ai_chat(request):
+    if not settings.OPENAI_API_KEY:
+        return JsonResponse({"error": "OPENAI_API_KEY not configured"}, status=400)
+    data = _json_body(request)
+    prompt = (data.get("prompt") or "").strip()
+    if not prompt:
+        return JsonResponse({"error": "Prompt is required"}, status=400)
+    # Placeholder response; wire OpenAI client later.
+    return JsonResponse(
+        {
+            "answer": "OpenAI is configured. This is a placeholder response until the LLM is connected."
+        }
+    )
+
+
+@require_http_methods(["GET"])
+def api_ai_chat_status(request):
+    return JsonResponse(
+        {
+            "connected": bool(settings.OPENAI_API_KEY),
+            "provider": "openai",
         }
     )

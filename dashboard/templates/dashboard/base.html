@@ -34,6 +34,7 @@
           <a href="{% url 'sensor_feed' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/sensor-feed/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">Sensor Feed</a>
           <a href="{% url 'visualizations' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/visualizations/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">Visualizations</a>
           <a href="{% url 'ai' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/ai/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">AI Estimation</a>
+          <a href="{% url 'ai_chat' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/ai-chat/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">AI ChatBot</a>
           <a href="{% url 'faq' %}" class="block rounded px-3 py-2 transition text-brick hover:text-brick focus:text-brick visited:text-brick active:text-brick {% if path == '/faq/' %}bg-white/10{% else %}hover:bg-white/10{% endif %}">FAQ</a>
           {% endwith %}
         </nav>

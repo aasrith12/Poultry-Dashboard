@@ -1,0 +1,86 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+{% block content %}
+<div class="mx-auto max-w-6xl">
+  <div class="bg-white border border-auburn/30 rounded-2xl shadow-sm px-5 py-4 mb-5">
+    <div class="flex flex-wrap items-center gap-3">
+      <h1 class="text-xl font-semibold text-auburn">AI ChatBot</h1>
+      <p class="text-slate-700">
+        Ask questions about your BluConsole data, uploads, alerts, and notes.
+      </p>
+      <span id="ai-chat-status" class="ml-auto text-xs px-2 py-1 rounded-full bg-auburn/5 text-auburn border border-auburn/20">
+        Checking LLM...
+      </span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <section class="lg:col-span-2 bg-white border border-auburn/30 rounded-2xl shadow-sm p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-auburn">Conversation</h2>
+        <span class="text-xs text-slate-500">Context-ready placeholder</span>
+      </div>
+
+      <div id="chat-log" class="space-y-4 min-h-[340px]">
+        <div class="rounded-2xl border border-auburn/20 bg-auburn/5 p-4 text-slate-700">
+          <p class="font-medium text-auburn mb-1">Assistant</p>
+          <p>
+            I can summarize recent logger readings, highlight alerts, and explain uploads once the LLM
+            is connected. Ask me anything about your sensor data.
+          </p>
+        </div>
+      </div>
+
+      <form id="chat-form" class="mt-6 space-y-3">
+        <label class="block text-sm font-medium text-auburn">Your question</label>
+        <textarea
+          name="prompt"
+          rows="3"
+          placeholder="Example: What are the most recent readings for logger ID 12345?"
+          class="w-full rounded-xl border border-auburn/30 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-auburn/40"
+        ></textarea>
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <label class="inline-flex items-center gap-2 rounded-lg border border-auburn/40 px-3 py-1.5 text-auburn hover:bg-auburn/5 cursor-pointer text-sm">
+            <input
+              type="file"
+              id="chat-upload"
+              class="hidden"
+              accept=".xls,.xlsx,image/*"
+            />
+            Attach file (max 5 MB)
+          </label>
+          <button
+            type="submit"
+            class="rounded-lg bg-auburn text-white px-4 py-2 shadow hover:brightness-110 transition"
+          >
+            Send
+          </button>
+        </div>
+        <p id="chat-upload-hint" class="text-xs text-slate-500 hidden"></p>
+      </form>
+    </section>
+
+    <aside class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-5 space-y-4">
+      <div class="rounded-xl border border-auburn/10 bg-auburn/5 p-4">
+        <h3 class="text-sm font-semibold text-auburn">Planned capabilities</h3>
+        <ul class="mt-2 text-sm text-slate-700 space-y-1">
+          <li>- Query recent BluConsole logger readings</li>
+          <li>- Summarize uploads and visualizations</li>
+          <li>- Explain alerts and threshold breaches</li>
+          <li>- Reference profile notes</li>
+        </ul>
+      </div>
+      <div class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
+        <p class="font-semibold text-auburn">Coming soon</p>
+        <p class="mt-1">
+          OpenAI integration will allow real-time answers across your dashboard data.
+        </p>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'dashboard/js/ai_chat.js' %}"></script>
+{% endblock %}
