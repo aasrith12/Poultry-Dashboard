@@ -34,3 +34,34 @@ class UploadDataset(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}: {self.name}"
+
+
+class ChatSession(models.Model):
+    owner_key = models.CharField(max_length=255, db_index=True)
+    title = models.CharField(max_length=200, default="New chat")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}: {self.title}"
+
+
+class ChatMessage(models.Model):
+    session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="messages")
+    role = models.CharField(max_length=20)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.session_id} {self.role}"
+
+
+class ChatAttachment(models.Model):
+    message = models.ForeignKey(ChatMessage, on_delete=models.CASCADE, related_name="attachments")
+    name = models.CharField(max_length=255)
+    mime = models.CharField(max_length=120, blank=True)
+    summary = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.message_id}: {self.name}"

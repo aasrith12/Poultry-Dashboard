@@ -52,6 +52,7 @@ BLU_BASE = (
 )
 PROJECT_NAME = "Poultry Dashboard"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or ENV.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL") or ENV.get("OPENAI_MODEL", "gpt-4o-mini")
 
 
 # Application definition
@@ -146,3 +147,7 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Allow up to ~6 MB uploads (chat attachments max 5 MB)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 6 * 1024 * 1024

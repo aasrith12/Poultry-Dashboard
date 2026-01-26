@@ -3,7 +3,6 @@
   const refreshBtn = document.getElementById("refresh-devices");
   const lastRefreshed = document.getElementById("last-refreshed");
   const liveLoading = document.getElementById("live-loading");
-  const quickUpload = document.getElementById("quick-upload");
   const manualUpload = document.getElementById("manual-upload");
   const previewEmpty = document.getElementById("preview-empty");
   const previewWrap = document.getElementById("preview-table-wrap");
@@ -172,37 +171,26 @@
     if (previewBody) previewBody.innerHTML = "";
   };
 
-  const saveUpload = async (name, headers, rows) => {
+  const uploadFile = async (file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
     const res = await window.BluDash.csrfFetch("/api/uploads/", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, headers, rows }),
+      body: fd,
     });
-    if (!res.ok) throw new Error("Save failed");
-  };
-
-  const parseFile = async (file) => {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
-    const firstSheetName = wb.SheetNames[0];
-    const ws = wb.Sheets[firstSheetName];
-    const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
-    const headers = (data[0] || []).map((h) => String(h ?? "").trim());
-    const rows = data.slice(1).map((arr) => {
-      const obj = {};
-      headers.forEach((h, i) => {
-        obj[h] = arr[i];
-      });
-      return obj;
-    });
-    return { headers, rows };
-  };
-
-  const handleUpload = async (file) => {
-    if (!file) return;
-    const { headers, rows } = await parseFile(file);
-    await saveUpload(file.name, headers, rows);
-    renderPreview(file.name, headers, rows);
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      alert((data && data.error) || "Upload failed. Check the server log for details.");
+      return;
+    }
+    const upload = data.upload;
+    renderPreview(upload.name, upload.headers || [], upload.rows || []);
     await loadHistory();
   };
 
@@ -244,8 +232,7 @@
   };
 
   if (refreshBtn) refreshBtn.addEventListener("click", loadDevices);
-  if (quickUpload) quickUpload.addEventListener("change", (e) => handleUpload(e.target.files?.[0]));
-  if (manualUpload) manualUpload.addEventListener("change", (e) => handleUpload(e.target.files?.[0]));
+  if (manualUpload) manualUpload.addEventListener("change", (e) => uploadFile(e.target.files?.[0]));
   if (clearPreview) clearPreview.addEventListener("click", clearPreviewTable);
   if (clearHistory) {
     clearHistory.addEventListener("click", async () => {

@@ -61,20 +61,34 @@
     </section>
 
     <aside class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-5 space-y-4">
-      <div class="rounded-xl border border-auburn/10 bg-auburn/5 p-4">
-        <h3 class="text-sm font-semibold text-auburn">Planned capabilities</h3>
-        <ul class="mt-2 text-sm text-slate-700 space-y-1">
-          <li>- Query recent BluConsole logger readings</li>
-          <li>- Summarize uploads and visualizations</li>
-          <li>- Explain alerts and threshold breaches</li>
-          <li>- Reference profile notes</li>
-        </ul>
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-auburn">Chat history</h3>
+        <div class="flex items-center gap-2">
+          <button
+            id="new-chat"
+            class="text-xs rounded border border-auburn/40 px-2 py-1 text-auburn hover:bg-auburn/5"
+          >
+            New chat
+          </button>
+          <button
+            id="clear-chats"
+            class="text-xs rounded border border-red-500/40 px-2 py-1 text-red-600 hover:bg-red-50"
+          >
+            Clear chats
+          </button>
+        </div>
       </div>
-      <div class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
-        <p class="font-semibold text-auburn">Coming soon</p>
-        <p class="mt-1">
-          OpenAI integration will allow real-time answers across your dashboard data.
-        </p>
+      <p id="chat-history-empty" class="text-sm text-slate-500">No saved chats yet.</p>
+      <div id="chat-history" class="space-y-2"></div>
+
+      <div class="rounded-xl border border-auburn/10 bg-auburn/5 p-4">
+        <h3 class="text-sm font-semibold text-auburn">Tips</h3>
+        <ul class="mt-2 text-sm text-slate-700 space-y-1">
+          <li>- Ask about time/temperature trends</li>
+          <li>- Upload an Excel logger export</li>
+          <li>- Mention a logger ID for live data</li>
+          <li>- Ask for shelf-life insights</li>
+        </ul>
       </div>
     </aside>
   </div>

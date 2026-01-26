@@ -1,6 +1,27 @@
 (() => {
+  const cutoffLinePlugin = {
+    id: "cutoffLine",
+    beforeDraw(chart, args, opts) {
+      const value = opts?.value;
+      if (value == null || Number.isNaN(value)) return;
+      const y = chart.scales.y.getPixelForValue(value);
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = "#ea711a";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(chart.chartArea.left, y);
+      ctx.lineTo(chart.chartArea.right, y);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+  Chart.register(cutoffLinePlugin);
   const badge = document.getElementById("ai-active-badge");
   const cutoffInput = document.getElementById("cutoff");
+  const xIntervalSelect = document.getElementById("ai-x-interval");
+  const yStepSelect = document.getElementById("ai-y-step");
   const empty = document.getElementById("ai-empty");
   const chartWrap = document.getElementById("ai-chart-wrap");
   const chartCanvas = document.getElementById("ai-chart");
@@ -11,6 +32,16 @@
   const fefoWrap = document.getElementById("ai-method2");
   const fefoBody = document.getElementById("ai-fefo-body");
   const fefoSummary = document.getElementById("ai-fefo-summary");
+  const refTempInput = document.getElementById("ai-ref-temp");
+  const baselineInput = document.getElementById("ai-baseline-life");
+  const modelTabs = document.querySelectorAll("[data-ai-model]");
+  const modelPanels = document.querySelectorAll("[data-ai-model-panel]");
+  const modelAvgQ10 = document.getElementById("ai-model-avgq10");
+  const modelQ10Int = document.getElementById("ai-model-q10int");
+  const modelArrInt = document.getElementById("ai-model-arrint");
+  const modelMktQ10 = document.getElementById("ai-model-mktq10");
+  const modelMktArr = document.getElementById("ai-model-mktarr");
+  const reportDownload = document.getElementById("ai-report-download");
   const devicesList = document.getElementById("ai-devices-list");
   const devicesLoading = document.getElementById("ai-devices-loading");
   const devicesEmpty = document.getElementById("ai-devices-empty");
@@ -20,6 +51,12 @@
   let chart = null;
   let activeSeries = [];
   let activeLabel = "Nothing selected";
+  let activeModel = "fefo";
+  let lastReport = null;
+
+  const DEFAULT_Q10 = 3.0;
+  const DEFAULT_EA = 90000.0;
+  const GAS_R = 8.314;
 
   const fetchJson = async (url) => {
     const res = await fetch(url);
@@ -38,16 +75,33 @@
     if (v instanceof Date && !isNaN(v.getTime())) return v;
     const s = String(v).trim();
     if (!s) return null;
+    // Time-only (HH:MM or HH:MM:SS)
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
+      const parts = s.split(":").map((p) => Number(p));
+      const [hh, mm, ss] = [parts[0], parts[1], parts[2] || 0];
+      const d = new Date(Date.UTC(1970, 0, 1, hh, mm, ss));
+      return isNaN(d.getTime()) ? null : d;
+    }
     const d1 = new Date(s);
     if (!isNaN(d1.getTime())) return d1;
     if (s.includes(" ")) {
       const d2 = new Date(s.replace(" ", "T"));
       if (!isNaN(d2.getTime())) return d2;
     }
-    if (/^\d+$/.test(s)) {
+    if (/^\d+(\.\d+)?$/.test(s)) {
       const n = Number(s);
-      const guess = s.length >= 13 ? new Date(n) : new Date(n * 1000);
-      if (!isNaN(guess.getTime())) return guess;
+      if (!Number.isFinite(n)) return null;
+      if (n > 10_000_000_000) return new Date(n);
+      if (n > 1_000_000_000) return new Date(n * 1000);
+      // Excel time fraction or date serial
+      if (n > 0 && n < 1) {
+        const ms = n * 24 * 3600 * 1000;
+        return new Date(Date.UTC(1970, 0, 1) + ms);
+      }
+      if (n > 20_000 && n < 60_000) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        return new Date(excelEpoch + n * 86400000);
+      }
     }
     return null;
   };
@@ -185,7 +239,74 @@
     };
   };
 
-  const renderChart = (bucketed) => {
+  const prepareIntervals = (series) => {
+    if (!series || series.length < 2) return { temps: [], dtDays: [], totalDays: 0 };
+    const sorted = [...series]
+      .filter((p) => p && p.temp != null && Number.isFinite(p.temp) && Number.isFinite(p.t))
+      .sort((a, b) => a.t - b.t);
+    const temps = [];
+    const dtDays = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i];
+      const b = sorted[i + 1];
+      const dtMs = b.t - a.t;
+      if (dtMs <= 0) continue;
+      temps.push(a.temp);
+      dtDays.push(dtMs / 86400000);
+    }
+    const totalDays = dtDays.reduce((sum, v) => sum + v, 0);
+    return { temps, dtDays, totalDays };
+  };
+
+  const rrQ10 = (T, Tref, Q10) => Math.pow(Q10, (T - Tref) / 10.0);
+
+  const rrArrhenius = (T, Tref, Ea) => {
+    const Tk = T + 273.15;
+    const TrefK = Tref + 273.15;
+    return Math.exp(-(Ea / GAS_R) * ((1 / Tk) - (1 / TrefK)));
+  };
+
+  const computeMkt = (temps, dtDays, Ea) => {
+    if (!temps.length) return null;
+    const total = dtDays.reduce((sum, v) => sum + v, 0);
+    if (!total) return null;
+    const weights = dtDays.map((v) => v / total);
+    const B = Ea / GAS_R;
+    let inner = 0;
+    for (let i = 0; i < temps.length; i++) {
+      const Tk = temps[i] + 273.15;
+      inner += weights[i] * Math.exp(-B / Tk);
+    }
+    if (inner <= 0) return null;
+    const TmktK = -B / Math.log(inner);
+    return TmktK - 273.15;
+  };
+
+  const clampDays = (v) => (Number.isFinite(v) ? Math.max(v, 0) : NaN);
+
+  const renderModelSummary = (el, title, summary) => {
+    if (!el) return;
+    el.innerHTML = `
+      <div class="text-slate-500 text-xs uppercase tracking-wide mb-2">${title}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        ${summary
+          .map(
+            (item) => `
+            <div class="rounded-lg border border-slate-200 p-3">
+              <div class="text-[11px] text-slate-500 mb-1">${item.label}</div>
+              <div class="text-base font-semibold">${item.value}</div>
+            </div>
+          `
+          )
+          .join("")}
+      </div>
+      <div class="mt-3 text-[13px] text-slate-600">
+        Assumptions: baseline life at reference temp; Q10=${DEFAULT_Q10.toFixed(1)}, Ea=${DEFAULT_EA.toFixed(0)} J/mol.
+      </div>
+    `;
+  };
+
+  const renderChart = (bucketed, cutoffVal, yStep) => {
     if (!chartCanvas) return;
     if (chartCanvas._chart) chartCanvas._chart.destroy();
     chartCanvas._chart = new Chart(chartCanvas, {
@@ -203,7 +324,20 @@
           },
         ],
       },
-      options: { responsive: true, plugins: { legend: { display: true } } },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: true },
+          cutoffLine: { value: cutoffVal },
+        },
+        scales: {
+          y: {
+            ticks: {
+              stepSize: yStep || undefined,
+            },
+          },
+        },
+      },
     });
   };
 
@@ -226,47 +360,153 @@
     });
   };
 
-  const renderFefo = (exposure, cutoffC) => {
+  const renderFefo = (series, refTemp, baselineLife) => {
     if (!fefoBody || !fefoSummary) return;
-    const timeAbove = exposure.hoursAbove;
-    const shelfLifeDays = Math.max(-0.3796 * timeAbove + 7.1597, 0);
-    const shelfLifeRemainingPct = (shelfLifeDays / 7.16) * 100;
-    const shelfLifeReductionPct = 100 - shelfLifeRemainingPct;
-    const samples = Array.from({ length: 500 }, () => shelfLifeDays + (Math.random() * 2 - 1));
+    const { temps, dtDays, totalDays } = prepareIntervals(series);
+    if (!temps.length || !totalDays) return;
+
+    const teq = dtDays.reduce(
+      (sum, dt, i) => sum + dt * rrQ10(temps[i], refTemp, DEFAULT_Q10),
+      0
+    );
+    const remaining = clampDays(baselineLife - teq);
+    const remainingPct = baselineLife > 0 ? (remaining / baselineLife) * 100 : 0;
+    const reductionPct = 100 - remainingPct;
+
+    const samples = Array.from({ length: 500 }, () => remaining + (Math.random() * 2 - 1));
     const riskOfLoss = (samples.filter((v) => v < 4).length / samples.length) * 100;
 
-    const tableRows = [0, 2, 4, 6, 8].map((h) => {
-      const y = Math.max(-0.3796 * h + 7.1597, 0);
-      const yPct = (y / 7.16) * 100;
-      const redPct = 100 - yPct;
-      const sim = Array.from({ length: 500 }, () => y + (Math.random() * 2 - 1));
-      const risk = (sim.filter((v) => v < 4).length / sim.length) * 100;
-      return { h, risk, y, yPct, redPct };
-    });
-
     fefoBody.innerHTML = "";
-    tableRows.forEach((r) => {
-      const tr = document.createElement("tr");
-      tr.className = "odd:bg-white even:bg-slate-50";
-      tr.innerHTML = `
-        <td class="px-4 py-2 text-slate-700">${r.h}</td>
-        <td class="px-4 py-2 text-slate-700">${r.risk.toFixed(1)}</td>
-        <td class="px-4 py-2 text-slate-700">${r.y.toFixed(2)}</td>
-        <td class="px-4 py-2 text-slate-700">${r.yPct.toFixed(1)}</td>
-        <td class="px-4 py-2 text-slate-700">${r.redPct.toFixed(1)}</td>
-      `;
-      fefoBody.appendChild(tr);
-    });
+    const tr = document.createElement("tr");
+    tr.className = "odd:bg-white even:bg-slate-50";
+    tr.innerHTML = `
+      <td class="px-4 py-2 text-slate-700">${teq.toFixed(2)}</td>
+      <td class="px-4 py-2 text-slate-700">${riskOfLoss.toFixed(1)}</td>
+      <td class="px-4 py-2 text-slate-700">${remaining.toFixed(2)}</td>
+      <td class="px-4 py-2 text-slate-700">${remainingPct.toFixed(1)}</td>
+      <td class="px-4 py-2 text-slate-700">${reductionPct.toFixed(1)}</td>
+    `;
+    fefoBody.appendChild(tr);
 
     fefoSummary.innerHTML = `
       <p>
-        Based on <span class="font-medium">${timeAbove.toFixed(2)} hours</span> above
-        <span class="text-auburn font-semibold">${cutoffC.toFixed(2)} C</span>,
-        estimated shelf-life is <span class="font-semibold">${shelfLifeDays.toFixed(2)} days</span>
-        (${shelfLifeRemainingPct.toFixed(1)}% remaining, ${shelfLifeReductionPct.toFixed(1)}% reduction).
+        FEFO uses Q10-integrated equivalent time at the reference temperature.
+        Equivalent time: <span class="font-semibold">${teq.toFixed(2)} days</span> at
+        <span class="text-auburn font-semibold">${refTemp.toFixed(2)} C</span>.
+        Estimated remaining life: <span class="font-semibold">${remaining.toFixed(2)} days</span>
+        (${remainingPct.toFixed(1)}% remaining).
         Simulated <span class="font-semibold">${riskOfLoss.toFixed(1)}%</span> risk of loss.
       </p>
     `;
+  };
+
+  const renderShelfLifeModels = () => {
+    if (!activeSeries.length) return;
+    const refTemp = refTempInput ? Number(refTempInput.value) : 5.0;
+    const baselineLife = baselineInput ? Number(baselineInput.value) : 7.16;
+    const refTempSafe = Number.isFinite(refTemp) ? refTemp : 5.0;
+    const baselineSafe = Number.isFinite(baselineLife) ? baselineLife : 7.16;
+    const { temps, dtDays, totalDays } = prepareIntervals(activeSeries);
+    if (!temps.length || !totalDays) return;
+    const fmt = (v, digits = 2) => (Number.isFinite(v) ? v.toFixed(digits) : "-");
+
+    const totalHours = totalDays * 24;
+    const Tavg = temps.reduce((sum, t, i) => sum + t * dtDays[i], 0) / totalDays;
+
+    const teqAvgQ10 = totalDays * rrQ10(Tavg, refTempSafe, DEFAULT_Q10);
+    const LavgQ10 = clampDays(baselineSafe - teqAvgQ10);
+
+    const teqQ10 = dtDays.reduce(
+      (sum, dt, i) => sum + dt * rrQ10(temps[i], refTempSafe, DEFAULT_Q10),
+      0
+    );
+    const Lq10 = clampDays(baselineSafe - teqQ10);
+
+    const teqArr = dtDays.reduce(
+      (sum, dt, i) => sum + dt * rrArrhenius(temps[i], refTempSafe, DEFAULT_EA),
+      0
+    );
+    const Larr = clampDays(baselineSafe - teqArr);
+
+    const Tmkt = computeMkt(temps, dtDays, DEFAULT_EA);
+    const teqMktQ10 = Tmkt == null ? NaN : totalDays * rrQ10(Tmkt, refTempSafe, DEFAULT_Q10);
+    const LmktQ10 = clampDays(baselineSafe - teqMktQ10);
+    const teqMktArr = Tmkt == null ? NaN : totalDays * rrArrhenius(Tmkt, refTempSafe, DEFAULT_EA);
+    const LmktArr = clampDays(baselineSafe - teqMktArr);
+
+    lastReport = {
+      label: activeLabel,
+      refTemp: refTempSafe,
+      baselineLife: baselineSafe,
+      totalHours,
+      totalDays,
+      Tavg,
+      teqAvgQ10,
+      teqQ10,
+      teqArr,
+      Tmkt,
+      teqMktQ10,
+      teqMktArr,
+      LavgQ10,
+      Lq10,
+      Larr,
+      LmktQ10,
+      LmktArr,
+      cutoff: Number(cutoffInput?.value),
+      Q10: DEFAULT_Q10,
+      Ea: DEFAULT_EA,
+      generatedAt: new Date().toISOString(),
+    };
+
+    renderModelSummary(modelAvgQ10, "Average Temperature + Q10", [
+      { label: "Total span", value: `${totalHours.toFixed(2)} h` },
+      { label: "Time-weighted avg temp", value: `${fmt(Tavg)} C` },
+      { label: "Equivalent time @ ref", value: `${fmt(teqAvgQ10)} d` },
+      { label: "Remaining shelf life", value: `${fmt(LavgQ10)} d` },
+    ]);
+
+    renderModelSummary(modelQ10Int, "Q10 Integrated (time-step)", [
+      { label: "Total span", value: `${totalHours.toFixed(2)} h` },
+      { label: "Equivalent time @ ref", value: `${fmt(teqQ10)} d` },
+      { label: "Remaining shelf life", value: `${fmt(Lq10)} d` },
+      { label: "Reference temp", value: `${fmt(refTempSafe)} C` },
+    ]);
+
+    renderModelSummary(modelArrInt, "Arrhenius Integrated", [
+      { label: "Total span", value: `${totalHours.toFixed(2)} h` },
+      { label: "Equivalent time @ ref", value: `${fmt(teqArr)} d` },
+      { label: "Remaining shelf life", value: `${fmt(Larr)} d` },
+      { label: "Reference temp", value: `${fmt(refTempSafe)} C` },
+    ]);
+
+    renderModelSummary(modelMktQ10, "Mean Kinetic Temperature + Q10", [
+      { label: "Total span", value: `${totalHours.toFixed(2)} h` },
+      { label: "MKT", value: `${fmt(Tmkt)} C` },
+      { label: "Equivalent time @ ref", value: `${fmt(teqMktQ10)} d` },
+      { label: "Remaining shelf life", value: `${fmt(LmktQ10)} d` },
+    ]);
+
+    renderModelSummary(modelMktArr, "Mean Kinetic Temperature + Arrhenius", [
+      { label: "Total span", value: `${totalHours.toFixed(2)} h` },
+      { label: "MKT", value: `${fmt(Tmkt)} C` },
+      { label: "Equivalent time @ ref", value: `${fmt(teqMktArr)} d` },
+      { label: "Remaining shelf life", value: `${fmt(LmktArr)} d` },
+    ]);
+  };
+
+  const setActiveModel = (model) => {
+    activeModel = model;
+    modelTabs.forEach((tab) => {
+      const isActive = tab.dataset.aiModel === model;
+      tab.classList.toggle("border-auburn/40", isActive);
+      tab.classList.toggle("text-auburn", isActive);
+      tab.classList.toggle("bg-auburn/10", isActive);
+      tab.classList.toggle("border-slate-200", !isActive);
+      tab.classList.toggle("text-slate-700", !isActive);
+    });
+    modelPanels.forEach((panel) => {
+      panel.classList.toggle("hidden", panel.dataset.aiModelPanel !== model);
+    });
   };
 
   const setActiveLabel = (label) => {
@@ -288,11 +528,18 @@
     if (!Number.isFinite(cutoffVal)) return;
     if (cutoffLabel) cutoffLabel.textContent = `${cutoffVal.toFixed(2)} C`;
     if (cutoffLabel2) cutoffLabel2.textContent = `${cutoffVal.toFixed(2)} C`;
-    const bucketed = bucketMeanByInterval(activeSeries, 3600000);
-    renderChart(bucketed);
+    const intervalHours = xIntervalSelect ? Number(xIntervalSelect.value) : 1;
+    const bucketed = bucketMeanByInterval(activeSeries, intervalHours * 3600000);
+    const yStep = yStepSelect ? Number(yStepSelect.value) : undefined;
+    renderChart(bucketed, cutoffVal, yStep);
     const exposure = computeExposure(activeSeries, cutoffVal);
     renderMetrics(exposure);
-    renderFefo(exposure, cutoffVal);
+    const refTemp = refTempInput ? Number(refTempInput.value) : 5.0;
+    const baselineLife = baselineInput ? Number(baselineInput.value) : 7.16;
+    const refTempSafe = Number.isFinite(refTemp) ? refTemp : 5.0;
+    const baselineSafe = Number.isFinite(baselineLife) ? baselineLife : 7.16;
+    renderFefo(activeSeries, refTempSafe, baselineSafe);
+    renderShelfLifeModels();
     if (metricsWrap) metricsWrap.classList.remove("hidden");
     if (fefoWrap) fefoWrap.classList.remove("hidden");
   };
@@ -365,6 +612,77 @@
   };
 
   if (cutoffInput) cutoffInput.addEventListener("change", updateView);
+  if (xIntervalSelect) xIntervalSelect.addEventListener("change", updateView);
+  if (yStepSelect) yStepSelect.addEventListener("change", updateView);
+  if (refTempInput) refTempInput.addEventListener("change", updateView);
+  if (baselineInput) baselineInput.addEventListener("change", updateView);
+  if (reportDownload) {
+    reportDownload.addEventListener("click", () => {
+      if (!lastReport) return;
+      const fmt = (v, digits = 2) => (Number.isFinite(v) ? v.toFixed(digits) : "-");
+      const lines = [
+        "Poultry Dashboard - Detailed Calculation Report",
+        `Generated: ${lastReport.generatedAt}`,
+        `Dataset: ${lastReport.label}`,
+        "",
+        "Inputs",
+        `- Reference temperature (C): ${fmt(lastReport.refTemp)}`,
+        `- Baseline life (days): ${fmt(lastReport.baselineLife)}`,
+        `- Cut-off (C): ${fmt(lastReport.cutoff)}`,
+        `- Q10: ${fmt(lastReport.Q10, 1)}`,
+        `- Ea (J/mol): ${fmt(lastReport.Ea, 0)}`,
+        "",
+        "Formulas (summary)",
+        "1) Equivalent time at reference:",
+        "   t_eq = sum(dt_i * RR(T_i))",
+        "2) Q10 rate:",
+        "   RR_Q10(T) = Q10^((T - T_ref)/10)",
+        "3) Arrhenius rate:",
+        "   RR_Arr(T) = exp(-(Ea/R) * (1/T_K - 1/T_ref,K))",
+        "4) MKT:",
+        "   B = Ea/R; w_i = dt_i / sum(dt_i)",
+        "   T_MKT = -B / ln(sum(w_i * exp(-B / T_i,K)))",
+        "5) Remaining shelf life:",
+        "   L_remaining = L_ref - t_eq",
+        "",
+        "Summary",
+        `- Total span: ${fmt(lastReport.totalHours)} h`,
+        `- Time-weighted average temp: ${fmt(lastReport.Tavg)} C`,
+        `- Mean kinetic temp (MKT): ${fmt(lastReport.Tmkt)} C`,
+        "",
+        "Equivalent Time @ Reference (days)",
+        `- Avg Temp + Q10: ${fmt(lastReport.teqAvgQ10)}`,
+        `- Q10 Integrated: ${fmt(lastReport.teqQ10)}`,
+        `- Arrhenius Integrated: ${fmt(lastReport.teqArr)}`,
+        `- MKT + Q10: ${fmt(lastReport.teqMktQ10)}`,
+        `- MKT + Arrhenius: ${fmt(lastReport.teqMktArr)}`,
+        "",
+        "Remaining Shelf Life (days)",
+        `- Avg Temp + Q10: ${fmt(lastReport.LavgQ10)}`,
+        `- Q10 Integrated: ${fmt(lastReport.Lq10)}`,
+        `- Arrhenius Integrated: ${fmt(lastReport.Larr)}`,
+        `- MKT + Q10: ${fmt(lastReport.LmktQ10)}`,
+        `- MKT + Arrhenius: ${fmt(lastReport.LmktArr)}`,
+        "",
+        "Notes",
+        "- Equivalent time uses time-step integration over the active chart data.",
+        "- Baseline life only affects remaining days calculations.",
+      ];
+      const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `poultry-calculation-report-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+  }
+  modelTabs.forEach((tab) => {
+    tab.addEventListener("click", () => setActiveModel(tab.dataset.aiModel || "fefo"));
+  });
+  setActiveModel(activeModel);
   setActiveLabel(activeLabel);
   loadDevices();
   loadHistory();

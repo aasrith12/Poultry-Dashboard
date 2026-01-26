@@ -30,6 +30,22 @@
               class="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-auburn/40"
               value="18.50"
             />
+            <label class="text-sm text-slate-600 whitespace-nowrap">X interval</label>
+            <select id="ai-x-interval" class="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+              <option value="0.5">0.5h</option>
+              <option value="1" selected>1h</option>
+              <option value="2">2h</option>
+              <option value="4">4h</option>
+              <option value="6">6h</option>
+            </select>
+            <label class="text-sm text-slate-600 whitespace-nowrap">Y step</label>
+            <select id="ai-y-step" class="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+              <option value="0.5">0.5</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="2.5" selected>2.5</option>
+              <option value="5">5</option>
+            </select>
           </div>
         </div>
 
@@ -58,29 +74,82 @@
       </div>
 
       <div id="ai-method2" class="bg-white border border-auburn/30 rounded-2xl shadow-sm p-5 hidden">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-auburn font-semibold">Method 2 - FEFO Shelf-Life Estimation (Monte Carlo Simulation)</h3>
-          <span class="text-sm text-slate-600">
-            Cut-off: <span id="ai-cutoff-label-2" class="text-auburn font-medium">18.50 C</span>
-          </span>
+        <div class="flex flex-wrap items-center gap-3 mb-3">
+          <h3 class="text-auburn font-semibold">Method 2 - Shelf-Life Models</h3>
+          <div class="ml-auto flex flex-wrap items-center gap-3 text-sm text-slate-600">
+            <div class="flex items-center gap-2">
+              <label for="ai-ref-temp" class="whitespace-nowrap">Reference temp (C)</label>
+              <input
+                id="ai-ref-temp"
+                type="number"
+                step="0.1"
+                class="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-auburn/40"
+                value="5"
+              />
+            </div>
+            <div class="flex items-center gap-2">
+              <label for="ai-baseline-life" class="whitespace-nowrap">Baseline life (days)</label>
+              <input
+                id="ai-baseline-life"
+                type="number"
+                step="0.01"
+                class="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-auburn/40"
+                value="7.16"
+              />
+            </div>
+            <span class="text-slate-500">
+              Cut-off: <span id="ai-cutoff-label-2" class="text-auburn font-medium">18.50 C</span>
+            </span>
+          </div>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
-            <thead class="bg-auburn/10 text-slate-800">
-              <tr>
-                <th class="px-4 py-2 text-left font-semibold">Time &gt; Cut-off (h)</th>
-                <th class="px-4 py-2 text-left font-semibold">Risk of Loss (%)</th>
-                <th class="px-4 py-2 text-left font-semibold">Shelf-Life (days)</th>
-                <th class="px-4 py-2 text-left font-semibold">Remaining (%)</th>
-                <th class="px-4 py-2 text-left font-semibold">Reduction (%)</th>
-              </tr>
-            </thead>
-            <tbody id="ai-fefo-body"></tbody>
-          </table>
+        <div id="ai-model-tabs" class="flex flex-wrap gap-2 mb-4">
+          <button type="button" data-ai-model="fefo" class="px-3 py-1.5 rounded-full border border-auburn/40 text-auburn bg-auburn/10 text-sm">FEFO (Monte Carlo)</button>
+          <button type="button" data-ai-model="avgq10" class="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 text-sm hover:border-auburn/40 hover:text-auburn">Avg Temp + Q10</button>
+          <button type="button" data-ai-model="q10int" class="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 text-sm hover:border-auburn/40 hover:text-auburn">Q10 Integrated</button>
+          <button type="button" data-ai-model="arrint" class="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 text-sm hover:border-auburn/40 hover:text-auburn">Arrhenius Integrated</button>
+          <button type="button" data-ai-model="mktq10" class="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 text-sm hover:border-auburn/40 hover:text-auburn">MKT + Q10</button>
+          <button type="button" data-ai-model="mktarr" class="px-3 py-1.5 rounded-full border border-slate-200 text-slate-700 text-sm hover:border-auburn/40 hover:text-auburn">MKT + Arrhenius</button>
         </div>
 
-        <div id="ai-fefo-summary" class="mt-4 bg-auburn/5 rounded-xl p-4 text-slate-700 text-sm"></div>
+        <div data-ai-model-panel="fefo">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
+              <thead class="bg-auburn/10 text-slate-800">
+                <tr>
+                  <th class="px-4 py-2 text-left font-semibold">Equivalent time @ ref (days)</th>
+                  <th class="px-4 py-2 text-left font-semibold">Risk of Loss (%)</th>
+                  <th class="px-4 py-2 text-left font-semibold">Remaining (days)</th>
+                  <th class="px-4 py-2 text-left font-semibold">Remaining (%)</th>
+                  <th class="px-4 py-2 text-left font-semibold">Reduction (%)</th>
+                </tr>
+              </thead>
+              <tbody id="ai-fefo-body"></tbody>
+            </table>
+          </div>
+          <div id="ai-fefo-summary" class="mt-4 bg-auburn/5 rounded-xl p-4 text-slate-700 text-sm"></div>
+        </div>
+
+        <div data-ai-model-panel="avgq10" class="hidden">
+          <div id="ai-model-avgq10" class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700 bg-white"></div>
+        </div>
+        <div data-ai-model-panel="q10int" class="hidden">
+          <div id="ai-model-q10int" class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700 bg-white"></div>
+        </div>
+        <div data-ai-model-panel="arrint" class="hidden">
+          <div id="ai-model-arrint" class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700 bg-white"></div>
+        </div>
+        <div data-ai-model-panel="mktq10" class="hidden">
+          <div id="ai-model-mktq10" class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700 bg-white"></div>
+        </div>
+        <div data-ai-model-panel="mktarr" class="hidden">
+          <div id="ai-model-mktarr" class="rounded-xl border border-slate-200 p-4 text-sm text-slate-700 bg-white"></div>
+        </div>
+
+        <div class="mt-4 text-xs text-slate-500">
+          Baseline life is used only to compute remaining days.
+          <button id="ai-report-download" type="button" class="ml-2 text-auburn hover:underline">Download detailed calculation report</button>
+        </div>
       </div>
     </div>
 

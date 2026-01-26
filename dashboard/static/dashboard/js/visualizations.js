@@ -13,9 +13,12 @@
   const historyEmpty = document.getElementById("upload-history-empty");
   const historyWrap = document.getElementById("upload-history-wrap");
   const historyBody = document.getElementById("upload-history-body");
+  const uploadXInterval = document.getElementById("upload-x-interval");
+  const uploadYStep = document.getElementById("upload-y-step");
 
   let liveChart = null;
   let uploadChart = null;
+  let uploadSeries = [];
 
   const fetchJson = async (url) => {
     const res = await fetch(url);
@@ -23,7 +26,7 @@
     return res.json();
   };
 
-  const renderLineChart = (canvas, labels, data, label) => {
+  const renderLineChart = (canvas, labels, data, label, opts = {}) => {
     if (!canvas) return null;
     if (canvas._chart) {
       canvas._chart.destroy();
@@ -46,7 +49,19 @@
       options: {
         responsive: true,
         plugins: { legend: { display: false } },
-        scales: { x: { ticks: { maxTicksLimit: 6 } } },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 6,
+              callback: opts.xTickCallback || undefined,
+            },
+          },
+          y: {
+            ticks: {
+              stepSize: opts.yStep || undefined,
+            },
+          },
+        },
       },
     });
     canvas._chart = chart;
@@ -58,16 +73,31 @@
     if (v instanceof Date && !isNaN(v.getTime())) return v;
     const s = String(v).trim();
     if (!s) return null;
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
+      const parts = s.split(":").map((p) => Number(p));
+      const [hh, mm, ss] = [parts[0], parts[1], parts[2] || 0];
+      const d = new Date(Date.UTC(1970, 0, 1, hh, mm, ss));
+      return isNaN(d.getTime()) ? null : d;
+    }
     const d1 = new Date(s);
     if (!isNaN(d1.getTime())) return d1;
     if (s.includes(" ")) {
       const d2 = new Date(s.replace(" ", "T"));
       if (!isNaN(d2.getTime())) return d2;
     }
-    if (/^\d+$/.test(s)) {
+    if (/^\d+(\.\d+)?$/.test(s)) {
       const n = Number(s);
-      const guess = s.length >= 13 ? new Date(n) : new Date(n * 1000);
-      if (!isNaN(guess.getTime())) return guess;
+      if (!Number.isFinite(n)) return null;
+      if (n > 10_000_000_000) return new Date(n);
+      if (n > 1_000_000_000) return new Date(n * 1000);
+      if (n > 0 && n < 1) {
+        const ms = n * 24 * 3600 * 1000;
+        return new Date(Date.UTC(1970, 0, 1) + ms);
+      }
+      if (n > 20_000 && n < 60_000) {
+        const excelEpoch = Date.UTC(1899, 11, 30);
+        return new Date(excelEpoch + n * 86400000);
+      }
     }
     return null;
   };
@@ -182,6 +212,24 @@
     });
   };
 
+  const updateUploadChart = () => {
+    if (!uploadSeries.length) return;
+    const intervalHours = uploadXInterval ? Number(uploadXInterval.value) : 1;
+    const yStep = uploadYStep ? Number(uploadYStep.value) : undefined;
+    const stepMs = (() => {
+      if (uploadSeries.length < 2) return 3600000;
+      return Math.max(1, uploadSeries[1].t - uploadSeries[0].t);
+    })();
+    const skip = Math.max(1, Math.round((intervalHours * 3600000) / stepMs));
+    const labels = uploadSeries.map((p) => new Date(p.t).toLocaleString());
+    const temps = uploadSeries.map((p) => p.temp);
+    const xTickCallback = (val, idx) => (idx % skip === 0 ? labels[idx] : "");
+    uploadChart = renderLineChart(uploadCanvas, labels, temps, "Temperature (C)", {
+      xTickCallback,
+      yStep,
+    });
+  };
+
   const loadUpload = async (id, name) => {
     try {
       const res = await fetchJson(`/api/uploads/${id}/`);
@@ -189,7 +237,7 @@
       const headers = (upload.headers || []).map((h) => String(h || "").trim());
       const rows = upload.rows || [];
       const { timeCol, tempCol } = detectTimeAndTemp(headers, rows);
-      const series = rows
+      uploadSeries = rows
         .map((r) => {
           const d = parseMaybeDate(r[timeCol]);
           if (!d) return null;
@@ -197,7 +245,7 @@
         })
         .filter(Boolean)
         .sort((a, b) => a.t - b.t);
-      if (!series.length) {
+      if (!uploadSeries.length) {
         if (uploadError) {
           uploadError.textContent = "No temperature/time columns detected in this file.";
           uploadError.classList.remove("hidden");
@@ -208,9 +256,7 @@
       if (uploadEmpty) uploadEmpty.classList.add("hidden");
       if (uploadWrap) uploadWrap.classList.remove("hidden");
       if (uploadError) uploadError.classList.add("hidden");
-      const labels = series.map((p) => new Date(p.t).toLocaleString());
-      const temps = series.map((p) => p.temp);
-      uploadChart = renderLineChart(uploadCanvas, labels, temps, "Temperature (C)");
+      updateUploadChart();
       const el = document.getElementById("uploaded-chart");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
@@ -222,6 +268,8 @@
   };
 
   if (liveRefresh) liveRefresh.addEventListener("click", loadLive);
+  if (uploadXInterval) uploadXInterval.addEventListener("change", updateUploadChart);
+  if (uploadYStep) uploadYStep.addEventListener("change", updateUploadChart);
   loadLive();
   loadHistory();
 })();

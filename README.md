@@ -14,7 +14,7 @@ Full Django rewrite of the Poultry Science Sensor Dashboard with BluConsole logi
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install django
+pip install -r requirements.txt
 ```
 
 ## Run
