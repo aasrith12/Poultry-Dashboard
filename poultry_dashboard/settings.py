@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,15 +20,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%ke*^ky!tm8g1nbgc064)t=o!8%ds=h2+3_!f=-^8fnj^p6bs#'
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = ["*"]
-
 
 def _read_dotenv(path: Path) -> dict:
     env = {}
@@ -44,15 +36,55 @@ def _read_dotenv(path: Path) -> dict:
 
 ENV = _read_dotenv(BASE_DIR / ".env")
 ENV.update(_read_dotenv(BASE_DIR / "openAI.env"))
+
+
+def _env_get(key: str, default: str = "") -> str:
+    return os.environ.get(key) or ENV.get(key, default)
+
+
+def _env_bool(key: str, default: bool = False) -> bool:
+    raw = _env_get(key, "")
+    if raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(key: str, default: list[str] | None = None) -> list[str]:
+    raw = _env_get(key, "")
+    if not raw:
+        return list(default or [])
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+DEFAULT_SECRET_KEY = "django-insecure-%ke*^ky!tm8g1nbgc064)t=o!8%ds=h2+3_!f=-^8fnj^p6bs#"
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = _env_get("SECRET_KEY", DEFAULT_SECRET_KEY)
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = _env_bool("DEBUG", default=True)
+
+ALLOWED_HOSTS = _env_list(
+    "ALLOWED_HOSTS",
+    default=["127.0.0.1", "localhost", ".railway.app", ".up.railway.app"],
+)
+
+if not DEBUG and SECRET_KEY == DEFAULT_SECRET_KEY:
+    raise ValueError("Set SECRET_KEY in the environment for production deployment.")
+
+railway_public_domain = _env_get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+csrf_origins = _env_list("CSRF_TRUSTED_ORIGINS", default=[])
+if railway_public_domain:
+    csrf_origins.append(f"https://{railway_public_domain}")
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(csrf_origins))
 BLU_BASE = (
-    os.environ.get("BLU_BASE")
-    or os.environ.get("VITE_BLU_BASE")
-    or ENV.get("VITE_BLU_BASE")
+    _env_get("BLU_BASE")
+    or _env_get("VITE_BLU_BASE")
     or "https://http-receiver.bluconsole.com"
 )
 PROJECT_NAME = "Poultry Dashboard"
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or ENV.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL") or ENV.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_API_KEY = _env_get("OPENAI_API_KEY", "")
+OPENAI_MODEL = _env_get("OPENAI_MODEL", "gpt-4o-mini")
 
 
 # Application definition
@@ -69,6 +101,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -101,10 +134,11 @@ WSGI_APPLICATION = 'poultry_dashboard.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.parse(
+        _env_get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
+        conn_max_age=600,
+        ssl_require=not DEBUG,
+    )
 }
 
 
@@ -143,8 +177,28 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
-
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", default=True)
+    SECURE_HSTS_SECONDS = int(_env_get("SECURE_HSTS_SECONDS", "3600"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = False
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
