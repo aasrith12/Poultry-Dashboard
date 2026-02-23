@@ -657,31 +657,60 @@ def _build_ai_context(request, prompt: str, session: ChatSession | None) -> str:
 
 
 def _openai_chat(prompt: str, context: str, session: ChatSession | None) -> str:
+    casual_prompt = _is_smalltalk_prompt(prompt)
     system_msg = (
-        "You are an expert poultry cold-chain analyst and dashboard assistant. "
-        "Use the provided context (including attachment summaries) to deliver clear, structured analysis. "
+        "You are the Poultry Dashboard Assistant integrated into a sensor monitoring platform for "
+        "Auburn University's College of Agriculture. "
+        "Your job is to help users interpret live sensor feeds, battery status, and AI-driven "
+        "shelf-life estimations for poultry products. "
+        "Use the provided context (including attachment summaries, logger status, and recent chat) "
+        "to give specific, practical guidance. "
         "Never claim you cannot access an attached file if a summary is present. "
-        "If data is missing, ask one clarifying question but still give general guidance. "
-        "Write in short sections with headings and bullet points, like:\n"
-        "1) What this file contains\n"
-        "2) Time vs Temperature (what happened)\n"
-        "3) Temperature abuse (yes/no, why)\n"
-        "4) Shelf-life impact (plain language)\n"
-        "5) Practical interpretation\n"
-        "6) One-line summary\n"
-        "When the user greets you or asks a general question, respond warmly and ask what they want to analyze."
+        "If data is missing, ask one clarifying question but still give useful next steps. "
+        "Communication style: casual, helpful, and colleague-like (poultry lab / supply chain office tone). "
+        "Prefer 'we' and 'our' naturally. Keep the focus on action unless the user asks for deep math. "
+        "Only get math-heavy when the user asks how a calculation works or why model outputs differ. "
+        "You are an expert in the dashboard's shelf-life model buttons and should explain them accurately: "
+        "FEFO (Monte Carlo) predicts which batch is most likely to expire first under uncertainty and varying risk; "
+        "Arrhenius/Q10 Integrated estimates cumulative biological damage by integrating temperature over time; "
+        "MKT (Mean Kinetic Temperature) is a weighted temperature metric that emphasizes damaging heat spikes. "
+        "Core tasks: identify low-battery sensors, stale check-ins, hot/risky sensors, recommend the right model "
+        "for the scenario, and relate findings to meat safety, microbial growth, and supply-chain efficiency. "
+        "When the user greets you or makes small talk, respond casually, briefly, and contextually "
+        "(mention sensor status, logger exports, temperature trends, or shelf-life tools) instead of using a rigid report format."
     )
     messages = [
         {"role": "system", "content": system_msg},
         {"role": "system", "content": f"Context:\n{context}"},
-        {
-            "role": "system",
-            "content": (
-                "Format your response as numbered sections with short headings and bullet points. "
-                "Use markdown. Keep each section short and clear."
-            ),
-        },
     ]
+    if not casual_prompt:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Format your response as numbered sections with short headings and bullet points, like:\n"
+                    "1) What this file contains\n"
+                    "2) Time vs Temperature (what happened)\n"
+                    "3) Temperature abuse (yes/no, why)\n"
+                    "4) Shelf-life impact (plain language)\n"
+                    "5) Practical interpretation\n"
+                    "6) One-line summary\n"
+                    "Use markdown. Keep each section short and clear."
+                ),
+            }
+        )
+    else:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "For greetings/small talk, reply in 2-4 short sentences, friendly but professional. "
+                    "Be specific to this app (sensor status, battery/check-in health, logger exports, "
+                    "temperature trends, shelf-life models) "
+                    "and ask one helpful follow-up question."
+                ),
+            }
+        )
     if session:
         history = (
             ChatMessage.objects.filter(session=session)
@@ -713,6 +742,8 @@ def _openai_chat(prompt: str, context: str, session: ChatSession | None) -> str:
     choice = body.get("choices", [{}])[0]
     message = choice.get("message", {})
     content = (message.get("content") or "").strip() or "No response from model."
+    if casual_prompt:
+        return content
     if _needs_structure(content):
         return _format_structured_answer(session, prompt)
     return _normalize_structured_text(content)
@@ -779,6 +810,35 @@ def _needs_structure(answer: str) -> bool:
         return True
     markers = ["1)", "1.", "2)", "2.", "one-line summary", "one line summary"]
     return not any(m in text for m in markers)
+
+
+def _is_smalltalk_prompt(prompt: str) -> bool:
+    text = (prompt or "").strip().lower()
+    if not text:
+        return False
+    smalltalk_exact = {
+        "hi",
+        "hello",
+        "hey",
+        "hey there",
+        "hii",
+        "yo",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "how are you",
+        "how are you?",
+        "what can you do",
+        "who are you",
+    }
+    if text in smalltalk_exact:
+        return True
+    short_smalltalk_patterns = [
+        r"^(hi|hello|hey)\b.{0,20}$",
+        r"^how are you\b.{0,20}$",
+        r"^what can you do\b.{0,40}$",
+    ]
+    return any(re.match(p, text) for p in short_smalltalk_patterns)
 
 
 def _normalize_structured_text(text: str) -> str:

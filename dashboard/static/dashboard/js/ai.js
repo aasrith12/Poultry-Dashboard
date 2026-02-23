@@ -34,7 +34,19 @@
   const fefoSummary = document.getElementById("ai-fefo-summary");
   const refTempInput = document.getElementById("ai-ref-temp");
   const baselineInput = document.getElementById("ai-baseline-life");
-  const modelTabs = document.querySelectorAll("[data-ai-model]");
+  const modelListBody = document.getElementById("ai-model-list-body");
+  const selectedModelLabel = document.getElementById("ai-selected-model-label");
+  const modelConfidenceNote = document.getElementById("ai-model-confidence-note");
+  const confidenceHelpOpen = document.getElementById("ai-confidence-help-open");
+  const confidenceHelpModal = document.getElementById("ai-confidence-help-modal");
+  const confidenceHelpBackdrop = document.getElementById("ai-confidence-help-backdrop");
+  const confidenceHelpClose = document.getElementById("ai-confidence-help-close");
+  const modelComparisonOpen = document.getElementById("ai-model-comparison-open");
+  const modelComparisonModal = document.getElementById("ai-model-comparison-modal");
+  const modelComparisonBackdrop = document.getElementById("ai-model-comparison-backdrop");
+  const modelComparisonClose = document.getElementById("ai-model-comparison-close");
+  const modelComparisonBody = document.getElementById("ai-model-comparison-body");
+  const modelComparisonSummary = document.getElementById("ai-model-comparison-summary");
   const modelPanels = document.querySelectorAll("[data-ai-model-panel]");
   const modelAvgQ10 = document.getElementById("ai-model-avgq10");
   const modelQ10Int = document.getElementById("ai-model-q10int");
@@ -52,16 +64,37 @@
   let activeSeries = [];
   let activeLabel = "Nothing selected";
   let activeModel = "fefo";
+  let lastFefoMetrics = null;
   let lastReport = null;
 
   const DEFAULT_Q10 = 3.0;
   const DEFAULT_EA = 90000.0;
   const GAS_R = 8.314;
+  const MODEL_LABELS = {
+    fefo: "FEFO (Monte Carlo)",
+    avgq10: "Avg Temp + Q10",
+    q10int: "Q10 Integrated",
+    arrint: "Arrhenius Integrated",
+    mktq10: "MKT + Q10",
+    mktarr: "MKT + Arrhenius",
+  };
 
   const fetchJson = async (url) => {
     const res = await fetch(url);
     if (!res.ok) throw new Error("Request failed");
     return res.json();
+  };
+
+  const setConfidenceHelpModalOpen = (open) => {
+    if (!confidenceHelpModal) return;
+    confidenceHelpModal.classList.toggle("hidden", !open);
+    document.body.classList.toggle("overflow-hidden", open);
+  };
+
+  const setModelComparisonModalOpen = (open) => {
+    if (!modelComparisonModal) return;
+    modelComparisonModal.classList.toggle("hidden", !open);
+    document.body.classList.toggle("overflow-hidden", open);
   };
 
   const toNum = (v) => {
@@ -361,9 +394,9 @@
   };
 
   const renderFefo = (series, refTemp, baselineLife) => {
-    if (!fefoBody || !fefoSummary) return;
+    if (!fefoBody || !fefoSummary) return null;
     const { temps, dtDays, totalDays } = prepareIntervals(series);
-    if (!temps.length || !totalDays) return;
+    if (!temps.length || !totalDays) return null;
 
     const teq = dtDays.reduce(
       (sum, dt, i) => sum + dt * rrQ10(temps[i], refTemp, DEFAULT_Q10),
@@ -398,6 +431,304 @@
         Simulated <span class="font-semibold">${riskOfLoss.toFixed(1)}%</span> risk of loss.
       </p>
     `;
+    return { teq, riskOfLoss, remaining, remainingPct, reductionPct };
+  };
+
+  const renderModelListTable = (rows) => {
+    if (!modelListBody) return;
+    modelListBody.innerHTML = "";
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.dataset.aiModelRow = row.key;
+      tr.tabIndex = 0;
+      tr.className =
+        "cursor-pointer border-t border-slate-100 focus:outline-none focus:ring-2 focus:ring-auburn/30 odd:bg-white even:bg-slate-50";
+      tr.innerHTML = `
+        <td class="px-4 py-2 text-slate-800">${row.label}</td>
+        <td class="px-4 py-2 text-slate-700">${row.remaining}</td>
+        <td class="px-4 py-2 text-slate-700">${row.confidence}</td>
+      `;
+      if (row.reason) tr.title = row.reason;
+      modelListBody.appendChild(tr);
+    });
+  };
+
+  const clampPct = (v) => Math.max(0, Math.min(100, v));
+
+  const computeSamplingQuality = (series) => {
+    const sorted = [...(series || [])].filter((p) => Number.isFinite(p?.t)).sort((a, b) => a.t - b.t);
+    if (sorted.length < 2) {
+      return { pointCount: sorted.length, spanHours: 0, medianGapHours: 0, maxGapHours: 0 };
+    }
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const gapH = (sorted[i].t - sorted[i - 1].t) / 3600000;
+      if (gapH > 0) gaps.push(gapH);
+    }
+    const sortedGaps = [...gaps].sort((a, b) => a - b);
+    const medianGapHours = sortedGaps.length
+      ? sortedGaps[Math.floor(sortedGaps.length / 2)]
+      : 0;
+    return {
+      pointCount: sorted.length,
+      spanHours: (sorted[sorted.length - 1].t - sorted[0].t) / 3600000,
+      medianGapHours,
+      maxGapHours: sortedGaps.length ? sortedGaps[sortedGaps.length - 1] : 0,
+    };
+  };
+
+  const computeModelConfidenceMap = ({
+    series,
+    baselineLife,
+    cutoff,
+    temps,
+    dtDays,
+    remainingByModel,
+    exposure,
+    totalDays,
+  }) => {
+    const sampling = computeSamplingQuality(series);
+    const weightedAvg =
+      totalDays > 0 ? temps.reduce((sum, t, i) => sum + t * dtDays[i], 0) / totalDays : NaN;
+    const variance =
+      totalDays > 0
+        ? temps.reduce((sum, t, i) => sum + Math.pow(t - weightedAvg, 2) * dtDays[i], 0) / totalDays
+        : NaN;
+    const tempStd = Number.isFinite(variance) ? Math.sqrt(Math.max(variance, 0)) : NaN;
+
+    const finiteRemainings = Object.values(remainingByModel).filter((v) => Number.isFinite(v));
+    const meanRemaining = finiteRemainings.length
+      ? finiteRemainings.reduce((a, b) => a + b, 0) / finiteRemainings.length
+      : NaN;
+    const disagreement = finiteRemainings.length
+      ? Math.max(...finiteRemainings) - Math.min(...finiteRemainings)
+      : NaN;
+    const disagreementPctOfBaseline =
+      Number.isFinite(disagreement) && baselineLife > 0 ? (disagreement / baselineLife) * 100 : 0;
+
+    const globalPenalties = [];
+    let globalPenalty = 0;
+    if (sampling.pointCount < 8) {
+      globalPenalty += 30;
+      globalPenalties.push("very few readings");
+    } else if (sampling.pointCount < 20) {
+      globalPenalty += 15;
+      globalPenalties.push("limited readings");
+    }
+    if (sampling.maxGapHours > 8) {
+      globalPenalty += 20;
+      globalPenalties.push("long data gaps");
+    } else if (sampling.maxGapHours > 3) {
+      globalPenalty += 10;
+      globalPenalties.push("some data gaps");
+    }
+    if (sampling.spanHours < 2) {
+      globalPenalty += 12;
+      globalPenalties.push("short monitoring window");
+    }
+    if (disagreementPctOfBaseline > 70) {
+      globalPenalty += 18;
+      globalPenalties.push("models disagree strongly");
+    } else if (disagreementPctOfBaseline > 35) {
+      globalPenalty += 10;
+      globalPenalties.push("moderate model disagreement");
+    }
+
+    const hotExcursions = Number.isFinite(exposure?.excursions) ? exposure.excursions : 0;
+    const pctAbove = Number.isFinite(exposure?.pctAbove) ? exposure.pctAbove : 0;
+    const overCutoffMax =
+      Number.isFinite(exposure?.maxTemp) && Number.isFinite(cutoff) ? Math.max(0, exposure.maxTemp - cutoff) : 0;
+
+    const scoreFor = (key) => {
+      let score = 88 - globalPenalty;
+      const reasons = [];
+      if (globalPenalties.length) reasons.push(...globalPenalties);
+      if (Number.isFinite(meanRemaining) && Number.isFinite(remainingByModel[key])) {
+        const delta = Math.abs(remainingByModel[key] - meanRemaining);
+        const deltaPct = baselineLife > 0 ? (delta / baselineLife) * 100 : 0;
+        if (deltaPct > 35) {
+          score -= 14;
+          reasons.push("far from other model estimates");
+        } else if (deltaPct > 18) {
+          score -= 7;
+          reasons.push("some disagreement vs other models");
+        }
+      }
+
+      if (key === "avgq10") {
+        if (Number.isFinite(tempStd) && tempStd > 5) {
+          score -= 16;
+          reasons.push("high temperature variability reduces average-temp reliability");
+        } else if (Number.isFinite(tempStd) && tempStd > 2.5) {
+          score -= 8;
+          reasons.push("moderate temperature swings");
+        }
+        if (hotExcursions >= 4) {
+          score -= 8;
+          reasons.push("multiple excursions favor integrated models");
+        }
+      }
+      if (key === "q10int" || key === "arrint") {
+        if (sampling.maxGapHours <= 2 && sampling.pointCount >= 20) {
+          score += 5;
+          reasons.push("good time-series coverage supports integrated model");
+        }
+        if (sampling.maxGapHours > 6) {
+          score -= 6;
+          reasons.push("integration confidence reduced by gaps");
+        }
+      }
+      if (key === "mktq10" || key === "mktarr") {
+        if (hotExcursions >= 2 || pctAbove > 10 || overCutoffMax > 4) {
+          score += 6;
+          reasons.push("spike-sensitive profile suits MKT weighting");
+        } else {
+          score -= 5;
+          reasons.push("limited spike behavior reduces MKT advantage");
+        }
+      }
+      if (key === "fefo") {
+        if (Number.isFinite(lastFefoMetrics?.riskOfLoss) && (lastFefoMetrics.riskOfLoss === 0 || lastFefoMetrics.riskOfLoss === 100)) {
+          score -= 4;
+          reasons.push("FEFO risk is threshold-sensitive in this simplified simulation");
+        }
+      }
+      if (pctAbove > 60) {
+        score -= 4;
+        reasons.push("extreme warm exposure increases uncertainty in shelf-life assumptions");
+      }
+      score = Math.round(clampPct(score));
+      const reasonText = reasons.length
+        ? reasons.slice(0, 3).join("; ")
+        : "Good data coverage and model agreement";
+      return { score, reason: reasonText };
+    };
+
+    return {
+      fefo: scoreFor("fefo"),
+      avgq10: scoreFor("avgq10"),
+      q10int: scoreFor("q10int"),
+      arrint: scoreFor("arrint"),
+      mktq10: scoreFor("mktq10"),
+      mktarr: scoreFor("mktarr"),
+    };
+  };
+
+  const buildModelComparison = ({
+    baselineLife,
+    remainingByModel,
+    confidenceByModel,
+    exposure,
+    cutoff,
+    tempStdC,
+    maxGapHours,
+  }) => {
+    const keys = ["fefo", "avgq10", "q10int", "arrint", "mktq10", "mktarr"];
+    const finiteRemainings = keys.map((k) => remainingByModel[k]).filter((v) => Number.isFinite(v));
+    const consensus = finiteRemainings.length
+      ? [...finiteRemainings].sort((a, b) => a - b)[Math.floor(finiteRemainings.length / 2)]
+      : NaN;
+    const spread = finiteRemainings.length ? Math.max(...finiteRemainings) - Math.min(...finiteRemainings) : NaN;
+    const spreadPct = Number.isFinite(spread) && baselineLife > 0 ? (spread / baselineLife) * 100 : 0;
+    const hasSpikes =
+      (Number.isFinite(exposure?.excursions) && exposure.excursions >= 2) ||
+      (Number.isFinite(exposure?.pctAbove) && exposure.pctAbove > 10) ||
+      (Number.isFinite(exposure?.maxTemp) && Number.isFinite(cutoff) && exposure.maxTemp - cutoff > 4);
+    const tempStd = Number.isFinite(tempStdC) ? tempStdC : NaN;
+
+    const rows = keys.map((key) => {
+      const remaining = remainingByModel[key];
+      const reductionPct =
+        Number.isFinite(remaining) && baselineLife > 0 ? Math.max(0, (1 - remaining / baselineLife) * 100) : NaN;
+      const conf = confidenceByModel[key]?.score ?? NaN;
+      const delta = Number.isFinite(consensus) && Number.isFinite(remaining) ? remaining - consensus : NaN;
+      const deltaAbsPct = Number.isFinite(delta) && baselineLife > 0 ? (Math.abs(delta) / baselineLife) * 100 : NaN;
+      const agreementScore = Number.isFinite(deltaAbsPct) ? Math.round(clampPct(100 - deltaAbsPct * 2.2)) : NaN;
+      let biasLabel = "N/A";
+      if (Number.isFinite(delta)) {
+        if (delta > 0.4) biasLabel = `Optimistic (+${delta.toFixed(2)} d)`;
+        else if (delta < -0.4) biasLabel = `Conservative (${delta.toFixed(2)} d)`;
+        else biasLabel = `Neutral (${delta.toFixed(2)} d)`;
+      }
+
+      let suitabilityBonus = 0;
+      if (key === "avgq10" && Number.isFinite(tempStd)) suitabilityBonus += tempStd < 2.5 ? 6 : tempStd > 5 ? -8 : 0;
+      if ((key === "q10int" || key === "arrint") && Number.isFinite(maxGapHours)) {
+        suitabilityBonus += maxGapHours <= 2 ? 8 : maxGapHours > 6 ? -8 : 0;
+      }
+      if ((key === "mktq10" || key === "mktarr")) suitabilityBonus += hasSpikes ? 8 : -5;
+      if (key === "fefo") suitabilityBonus += Number.isFinite(lastFefoMetrics?.riskOfLoss) ? -2 : 0;
+
+      const rankScore = (Number.isFinite(conf) ? conf * 0.55 : 0) + (Number.isFinite(agreementScore) ? agreementScore * 0.35 : 0) + 10 + suitabilityBonus;
+      return {
+        key,
+        model: MODEL_LABELS[key],
+        refShelfLife: baselineLife,
+        remaining,
+        reductionPct,
+        confidence: conf,
+        agreementScore,
+        biasLabel,
+        rankScore,
+      };
+    });
+
+    rows.sort((a, b) => (b.rankScore || -Infinity) - (a.rankScore || -Infinity));
+    rows.forEach((row, idx) => {
+      row.rank = idx + 1;
+    });
+
+    const best = rows[0];
+    const summaryParts = [];
+    if (best) {
+      summaryParts.push(
+        `Rank #1 (heuristic) is ${best.model} because it combines ${Number.isFinite(best.confidence) ? `${best.confidence}% confidence` : "available confidence"}`
+      );
+      if (Number.isFinite(best.agreementScore)) summaryParts.push(`${best.agreementScore}% agreement score`);
+      summaryParts.push(`and a profile-suitability advantage for this dataset shape.`);
+    }
+    if (Number.isFinite(spreadPct)) {
+      if (spreadPct > 35) summaryParts.push(`Model spread is high (${spreadPct.toFixed(1)}% of baseline life), so compare results cautiously.`);
+      else summaryParts.push(`Model spread is moderate (${spreadPct.toFixed(1)}% of baseline life), so consensus is relatively stable.`);
+    }
+
+    return {
+      rows,
+      summary: summaryParts.join(" "),
+    };
+  };
+
+  const renderModelComparisonModal = () => {
+    if (!modelComparisonBody || !modelComparisonSummary) return;
+    if (!lastReport?.comparisonTable) {
+      modelComparisonBody.innerHTML = `
+        <tr><td colspan="12" class="px-4 py-3 text-slate-500">Run an estimation first to view the model comparison table.</td></tr>
+      `;
+      modelComparisonSummary.textContent = "No comparison yet.";
+      return;
+    }
+    const fmt = (v, digits = 2) => (Number.isFinite(v) ? Number(v).toFixed(digits) : "N/A");
+    modelComparisonBody.innerHTML = "";
+    lastReport.comparisonTable.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      tr.className = "border-t border-slate-100 odd:bg-white even:bg-slate-50";
+      tr.innerHTML = `
+        <td class="px-3 py-2">${row.model}</td>
+        <td class="px-3 py-2">${fmt(row.refShelfLife)}</td>
+        <td class="px-3 py-2">${fmt(row.remaining)}</td>
+        <td class="px-3 py-2">${fmt(row.reductionPct, 1)}</td>
+        <td class="px-3 py-2">${fmt(row.confidence, 0)}</td>
+        <td class="px-3 py-2">${fmt(row.agreementScore, 0)}</td>
+        <td class="px-3 py-2">${row.biasLabel}</td>
+        <td class="px-3 py-2 text-slate-500">N/A*</td>
+        <td class="px-3 py-2 text-slate-500">N/A*</td>
+        <td class="px-3 py-2 text-slate-500">N/A*</td>
+        <td class="px-3 py-2 text-slate-500">N/A*</td>
+        <td class="px-3 py-2 font-semibold ${row.rank === 1 ? "text-auburn" : ""}">#${row.rank}</td>
+      `;
+      modelComparisonBody.appendChild(tr);
+    });
+    modelComparisonSummary.textContent = lastReport.comparisonTable.summary || "Ranking is based on heuristic comparison.";
   };
 
   const renderShelfLifeModels = () => {
@@ -433,6 +764,31 @@
     const LmktQ10 = clampDays(baselineSafe - teqMktQ10);
     const teqMktArr = Tmkt == null ? NaN : totalDays * rrArrhenius(Tmkt, refTempSafe, DEFAULT_EA);
     const LmktArr = clampDays(baselineSafe - teqMktArr);
+    const exposure = computeExposure(activeSeries, Number(cutoffInput?.value));
+    const remainingByModel = {
+      fefo: Number.isFinite(lastFefoMetrics?.remaining) ? lastFefoMetrics.remaining : NaN,
+      avgq10: LavgQ10,
+      q10int: Lq10,
+      arrint: Larr,
+      mktq10: LmktQ10,
+      mktarr: LmktArr,
+    };
+    const confidenceByModel = computeModelConfidenceMap({
+      series: activeSeries,
+      baselineLife: baselineSafe,
+      cutoff: Number(cutoffInput?.value),
+      temps,
+      dtDays,
+      remainingByModel,
+      exposure,
+      totalDays,
+    });
+    const sampling = computeSamplingQuality(activeSeries);
+    const tempVariance =
+      totalDays > 0
+        ? temps.reduce((sum, t, i) => sum + Math.pow(t - Tavg, 2) * dtDays[i], 0) / totalDays
+        : NaN;
+    const tempStdC = Number.isFinite(tempVariance) ? Math.sqrt(Math.max(tempVariance, 0)) : NaN;
 
     lastReport = {
       label: activeLabel,
@@ -452,11 +808,74 @@
       Larr,
       LmktQ10,
       LmktArr,
+      confidenceByModel,
+      maxGapHours: sampling.maxGapHours,
+      pointCount: sampling.pointCount,
+      tempStdC,
+      fefoRemaining: lastFefoMetrics?.remaining,
+      fefoTeq: lastFefoMetrics?.teq,
+      fefoRiskOfLoss: lastFefoMetrics?.riskOfLoss,
       cutoff: Number(cutoffInput?.value),
       Q10: DEFAULT_Q10,
       Ea: DEFAULT_EA,
       generatedAt: new Date().toISOString(),
     };
+    lastReport.comparisonTable = buildModelComparison({
+      baselineLife: baselineSafe,
+      remainingByModel,
+      confidenceByModel,
+      exposure,
+      cutoff: Number(cutoffInput?.value),
+      tempStdC,
+      maxGapHours: sampling.maxGapHours,
+    });
+    renderModelComparisonModal();
+
+    renderModelListTable([
+      {
+        key: "fefo",
+        label: MODEL_LABELS.fefo,
+        remaining: `${fmt(lastFefoMetrics?.remaining)} d`,
+        confidence: `${confidenceByModel.fefo.score}`,
+        reason: confidenceByModel.fefo.reason,
+      },
+      {
+        key: "avgq10",
+        label: MODEL_LABELS.avgq10,
+        remaining: `${fmt(LavgQ10)} d`,
+        confidence: `${confidenceByModel.avgq10.score}`,
+        reason: confidenceByModel.avgq10.reason,
+      },
+      {
+        key: "q10int",
+        label: MODEL_LABELS.q10int,
+        remaining: `${fmt(Lq10)} d`,
+        confidence: `${confidenceByModel.q10int.score}`,
+        reason: confidenceByModel.q10int.reason,
+      },
+      {
+        key: "arrint",
+        label: MODEL_LABELS.arrint,
+        remaining: `${fmt(Larr)} d`,
+        confidence: `${confidenceByModel.arrint.score}`,
+        reason: confidenceByModel.arrint.reason,
+      },
+      {
+        key: "mktq10",
+        label: MODEL_LABELS.mktq10,
+        remaining: `${fmt(LmktQ10)} d`,
+        confidence: `${confidenceByModel.mktq10.score}`,
+        reason: confidenceByModel.mktq10.reason,
+      },
+      {
+        key: "mktarr",
+        label: MODEL_LABELS.mktarr,
+        remaining: `${fmt(LmktArr)} d`,
+        confidence: `${confidenceByModel.mktarr.score}`,
+        reason: confidenceByModel.mktarr.reason,
+      },
+    ]);
+    setActiveModel(activeModel);
 
     renderModelSummary(modelAvgQ10, "Average Temperature + Q10", [
       { label: "Total span", value: `${totalHours.toFixed(2)} h` },
@@ -496,14 +915,24 @@
 
   const setActiveModel = (model) => {
     activeModel = model;
-    modelTabs.forEach((tab) => {
-      const isActive = tab.dataset.aiModel === model;
-      tab.classList.toggle("border-auburn/40", isActive);
-      tab.classList.toggle("text-auburn", isActive);
-      tab.classList.toggle("bg-auburn/10", isActive);
-      tab.classList.toggle("border-slate-200", !isActive);
-      tab.classList.toggle("text-slate-700", !isActive);
+    const modelRows = document.querySelectorAll("[data-ai-model-row]");
+    modelRows.forEach((row) => {
+      const isActive = row.dataset.aiModelRow === model;
+      row.classList.toggle("bg-auburn/10", isActive);
+      row.classList.toggle("ring-1", isActive);
+      row.classList.toggle("ring-inset", isActive);
+      row.classList.toggle("ring-auburn/30", isActive);
+      row.classList.toggle("text-auburn", isActive);
     });
+    if (selectedModelLabel) {
+      selectedModelLabel.textContent = MODEL_LABELS[model] || MODEL_LABELS.fefo;
+    }
+    if (modelConfidenceNote) {
+      const c = lastReport?.confidenceByModel?.[model];
+      modelConfidenceNote.textContent = c
+        ? `Heuristic confidence: ${c.score}% (${c.reason}).`
+        : "";
+    }
     modelPanels.forEach((panel) => {
       panel.classList.toggle("hidden", panel.dataset.aiModelPanel !== model);
     });
@@ -538,7 +967,7 @@
     const baselineLife = baselineInput ? Number(baselineInput.value) : 7.16;
     const refTempSafe = Number.isFinite(refTemp) ? refTemp : 5.0;
     const baselineSafe = Number.isFinite(baselineLife) ? baselineLife : 7.16;
-    renderFefo(activeSeries, refTempSafe, baselineSafe);
+    lastFefoMetrics = renderFefo(activeSeries, refTempSafe, baselineSafe);
     renderShelfLifeModels();
     if (metricsWrap) metricsWrap.classList.remove("hidden");
     if (fefoWrap) fefoWrap.classList.remove("hidden");
@@ -679,8 +1108,48 @@
       URL.revokeObjectURL(url);
     });
   }
-  modelTabs.forEach((tab) => {
-    tab.addEventListener("click", () => setActiveModel(tab.dataset.aiModel || "fefo"));
+  if (modelListBody) {
+    modelListBody.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-ai-model-row]");
+      if (!row) return;
+      setActiveModel(row.dataset.aiModelRow || "fefo");
+    });
+    modelListBody.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const row = e.target.closest("[data-ai-model-row]");
+      if (!row) return;
+      e.preventDefault();
+      setActiveModel(row.dataset.aiModelRow || "fefo");
+    });
+  }
+  if (confidenceHelpOpen) {
+    confidenceHelpOpen.addEventListener("click", () => setConfidenceHelpModalOpen(true));
+  }
+  if (confidenceHelpClose) {
+    confidenceHelpClose.addEventListener("click", () => setConfidenceHelpModalOpen(false));
+  }
+  if (confidenceHelpBackdrop) {
+    confidenceHelpBackdrop.addEventListener("click", () => setConfidenceHelpModalOpen(false));
+  }
+  if (modelComparisonOpen) {
+    modelComparisonOpen.addEventListener("click", () => {
+      renderModelComparisonModal();
+      setModelComparisonModalOpen(true);
+    });
+  }
+  if (modelComparisonClose) {
+    modelComparisonClose.addEventListener("click", () => setModelComparisonModalOpen(false));
+  }
+  if (modelComparisonBackdrop) {
+    modelComparisonBackdrop.addEventListener("click", () => setModelComparisonModalOpen(false));
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && confidenceHelpModal && !confidenceHelpModal.classList.contains("hidden")) {
+      setConfidenceHelpModalOpen(false);
+    }
+    if (e.key === "Escape" && modelComparisonModal && !modelComparisonModal.classList.contains("hidden")) {
+      setModelComparisonModalOpen(false);
+    }
   });
   setActiveModel(activeModel);
   setActiveLabel(activeLabel);
