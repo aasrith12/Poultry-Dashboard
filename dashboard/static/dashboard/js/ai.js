@@ -47,12 +47,20 @@
   const modelComparisonClose = document.getElementById("ai-model-comparison-close");
   const modelComparisonBody = document.getElementById("ai-model-comparison-body");
   const modelComparisonSummary = document.getElementById("ai-model-comparison-summary");
+  const graphPreviewModal = document.getElementById("ai-graph-preview-modal");
+  const graphPreviewBackdrop = document.getElementById("ai-graph-preview-backdrop");
+  const graphPreviewClose = document.getElementById("ai-graph-preview-close");
+  const graphPreviewTitle = document.getElementById("ai-graph-preview-title");
+  const graphPreviewImg = document.getElementById("ai-graph-preview-img");
   const modelPanels = document.querySelectorAll("[data-ai-model-panel]");
   const modelAvgQ10 = document.getElementById("ai-model-avgq10");
   const modelQ10Int = document.getElementById("ai-model-q10int");
   const modelArrInt = document.getElementById("ai-model-arrint");
   const modelMktQ10 = document.getElementById("ai-model-mktq10");
   const modelMktArr = document.getElementById("ai-model-mktarr");
+  const modelTrendEmpty = document.getElementById("ai-model-trend-empty");
+  const modelTrendWrap = document.getElementById("ai-model-trend-wrap");
+  const modelTrendCanvas = document.getElementById("ai-model-trend-chart");
   const reportDownload = document.getElementById("ai-report-download");
   const devicesList = document.getElementById("ai-devices-list");
   const devicesLoading = document.getElementById("ai-devices-loading");
@@ -66,6 +74,7 @@
   let activeModel = "fefo";
   let lastFefoMetrics = null;
   let lastReport = null;
+  let modelTrendChart = null;
 
   const DEFAULT_Q10 = 3.0;
   const DEFAULT_EA = 90000.0;
@@ -95,6 +104,20 @@
     if (!modelComparisonModal) return;
     modelComparisonModal.classList.toggle("hidden", !open);
     document.body.classList.toggle("overflow-hidden", open);
+  };
+
+  const setGraphPreviewModalOpen = (open) => {
+    if (!graphPreviewModal) return;
+    graphPreviewModal.classList.toggle("hidden", !open);
+    document.body.classList.toggle("overflow-hidden", open);
+  };
+
+  const openGraphPreview = (chartInstance, title) => {
+    if (!chartInstance || !graphPreviewImg) return;
+    const imgData = chartInstance.toBase64Image("image/png", 1);
+    graphPreviewImg.src = imgData;
+    if (graphPreviewTitle) graphPreviewTitle.textContent = title || "Graph Preview";
+    setGraphPreviewModalOpen(true);
   };
 
   const toNum = (v) => {
@@ -316,6 +339,176 @@
   };
 
   const clampDays = (v) => (Number.isFinite(v) ? Math.max(v, 0) : NaN);
+
+  const buildShelfLifeTrend = (series, refTemp, baselineLife) => {
+    if (!series || series.length < 2) return null;
+    const sorted = [...series]
+      .filter((p) => p && Number.isFinite(p.t) && Number.isFinite(p.temp))
+      .sort((a, b) => a.t - b.t);
+    if (sorted.length < 2) return null;
+
+    let cumQ10 = 0;
+    let cumArr = 0;
+    let cumTime = 0;
+    let weightedTemp = 0;
+    const labels = [];
+    const tempSeries = [];
+    const trend = {
+      fefo: [],
+      avgq10: [],
+      q10int: [],
+      arrint: [],
+      mktq10: [],
+      mktarr: [],
+    };
+    const projection = {
+      fefo: [],
+      avgq10: [],
+      q10int: [],
+      arrint: [],
+      mktq10: [],
+      mktarr: [],
+    };
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i];
+      const b = sorted[i + 1];
+      const dtDays = (b.t - a.t) / 86400000;
+      if (!Number.isFinite(dtDays) || dtDays <= 0) continue;
+
+      cumTime += dtDays;
+      weightedTemp += a.temp * dtDays;
+      cumQ10 += dtDays * rrQ10(a.temp, refTemp, DEFAULT_Q10);
+      cumArr += dtDays * rrArrhenius(a.temp, refTemp, DEFAULT_EA);
+
+      const avgT = cumTime > 0 ? weightedTemp / cumTime : NaN;
+      const teqAvgQ10 = cumTime > 0 ? cumTime * rrQ10(avgT, refTemp, DEFAULT_Q10) : NaN;
+      const mkt = computeMkt(
+        sorted.slice(0, i + 1).map((p) => p.temp),
+        Array.from({ length: i + 1 }, (_v, idx) => {
+          const n = sorted[idx + 1];
+          const c = sorted[idx];
+          return n ? Math.max(0, (n.t - c.t) / 86400000) : 0;
+        }),
+        DEFAULT_EA
+      );
+      const teqMktQ10 = mkt == null ? NaN : cumTime * rrQ10(mkt, refTemp, DEFAULT_Q10);
+      const teqMktArr = mkt == null ? NaN : cumTime * rrArrhenius(mkt, refTemp, DEFAULT_EA);
+      const projQ10Now = clampDays(baselineLife - cumTime * rrQ10(a.temp, refTemp, DEFAULT_Q10));
+      const projArrNow = clampDays(baselineLife - cumTime * rrArrhenius(a.temp, refTemp, DEFAULT_EA));
+
+      labels.push(((b.t - sorted[0].t) / 3600000).toFixed(2));
+      tempSeries.push(a.temp);
+      trend.fefo.push(clampDays(baselineLife - cumQ10));
+      trend.avgq10.push(clampDays(baselineLife - teqAvgQ10));
+      trend.q10int.push(clampDays(baselineLife - cumQ10));
+      trend.arrint.push(clampDays(baselineLife - cumArr));
+      trend.mktq10.push(clampDays(baselineLife - teqMktQ10));
+      trend.mktarr.push(clampDays(baselineLife - teqMktArr));
+      projection.fefo.push(projQ10Now);
+      projection.avgq10.push(projQ10Now);
+      projection.q10int.push(projQ10Now);
+      projection.arrint.push(projArrNow);
+      projection.mktq10.push(mkt == null ? NaN : clampDays(baselineLife - cumTime * rrQ10(mkt, refTemp, DEFAULT_Q10)));
+      projection.mktarr.push(mkt == null ? NaN : clampDays(baselineLife - cumTime * rrArrhenius(mkt, refTemp, DEFAULT_EA)));
+    }
+
+    if (!labels.length) return null;
+    return { labels, trend, projection, tempSeries };
+  };
+
+  const renderModelTrendChart = (series, refTemp, baselineLife, selectedModel) => {
+    if (!modelTrendCanvas) return;
+    const trendData = buildShelfLifeTrend(series, refTemp, baselineLife);
+    if (!trendData) {
+      if (modelTrendEmpty) modelTrendEmpty.classList.remove("hidden");
+      if (modelTrendWrap) modelTrendWrap.classList.add("hidden");
+      if (modelTrendChart) {
+        modelTrendChart.destroy();
+        modelTrendChart = null;
+      }
+      return;
+    }
+
+    if (modelTrendEmpty) modelTrendEmpty.classList.add("hidden");
+    if (modelTrendWrap) modelTrendWrap.classList.remove("hidden");
+    if (modelTrendChart) modelTrendChart.destroy();
+
+    const modelKey = MODEL_LABELS[selectedModel] ? selectedModel : "fefo";
+    const modelColorMap = {
+      fefo: "#7c2d12",
+      avgq10: "#1d4ed8",
+      q10int: "#0f766e",
+      arrint: "#b45309",
+      mktq10: "#7e22ce",
+      mktarr: "#be123c",
+    };
+    const { labels, trend, projection, tempSeries } = trendData;
+    const hours = labels.map((v) => Number(v));
+    const xy = (arr) => hours.map((x, i) => ({ x, y: arr[i] }));
+    modelTrendChart = new Chart(modelTrendCanvas, {
+      type: "line",
+      data: {
+        datasets: [
+          {
+            label: "Temperature (C)",
+            data: xy(tempSeries),
+            borderColor: "#1b3554",
+            tension: 0.2,
+            pointRadius: 0,
+            borderWidth: 2,
+            yAxisID: "yTemp",
+          },
+          {
+            label: `${MODEL_LABELS[modelKey]} - Cumulative remaining (days)`,
+            data: xy(trend[modelKey] || []),
+            borderColor: modelColorMap[modelKey] || "#7c2d12",
+            tension: 0.2,
+            pointRadius: 0,
+            borderWidth: 2,
+            yAxisID: "yLife",
+          },
+          {
+            label: `${MODEL_LABELS[modelKey]} - Temp-responsive trend (days)`,
+            data: xy(projection[modelKey] || []),
+            borderColor: modelColorMap[modelKey] || "#7c2d12",
+            borderDash: [6, 4],
+            tension: 0.25,
+            pointRadius: 0,
+            borderWidth: 2,
+            yAxisID: "yLife",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        parsing: false,
+        plugins: {
+          legend: { position: "bottom" },
+        },
+        scales: {
+          x: {
+            type: "linear",
+            title: { display: true, text: "Time from start (hours)" },
+            ticks: { maxTicksLimit: 10, callback: (v) => Number(v).toFixed(1) },
+          },
+          yTemp: {
+            type: "linear",
+            position: "left",
+            title: { display: true, text: "Temperature (C)" },
+          },
+          yLife: {
+            type: "linear",
+            position: "right",
+            title: { display: true, text: "Remaining shelf life (days)" },
+            grid: {
+              drawOnChartArea: false,
+            },
+          },
+        },
+      },
+    });
+  };
 
   const renderModelSummary = (el, title, summary) => {
     if (!el) return;
@@ -911,6 +1104,8 @@
       { label: "Equivalent time @ ref", value: `${fmt(teqMktArr)} d` },
       { label: "Remaining shelf life", value: `${fmt(LmktArr)} d` },
     ]);
+
+    renderModelTrendChart(activeSeries, refTempSafe, baselineSafe, activeModel);
   };
 
   const setActiveModel = (model) => {
@@ -936,6 +1131,13 @@
     modelPanels.forEach((panel) => {
       panel.classList.toggle("hidden", panel.dataset.aiModelPanel !== model);
     });
+    if (activeSeries.length) {
+      const refTemp = refTempInput ? Number(refTempInput.value) : 5.0;
+      const baselineLife = baselineInput ? Number(baselineInput.value) : 7.16;
+      const refTempSafe = Number.isFinite(refTemp) ? refTemp : 5.0;
+      const baselineSafe = Number.isFinite(baselineLife) ? baselineLife : 7.16;
+      renderModelTrendChart(activeSeries, refTempSafe, baselineSafe, activeModel);
+    }
   };
 
   const setActiveLabel = (label) => {
@@ -1143,12 +1345,31 @@
   if (modelComparisonBackdrop) {
     modelComparisonBackdrop.addEventListener("click", () => setModelComparisonModalOpen(false));
   }
+  if (graphPreviewClose) {
+    graphPreviewClose.addEventListener("click", () => setGraphPreviewModalOpen(false));
+  }
+  if (graphPreviewBackdrop) {
+    graphPreviewBackdrop.addEventListener("click", () => setGraphPreviewModalOpen(false));
+  }
+  if (chartCanvas) {
+    chartCanvas.addEventListener("click", () => {
+      if (chartCanvas._chart) openGraphPreview(chartCanvas._chart, "Temperature (C) vs Time (hours)");
+    });
+  }
+  if (modelTrendCanvas) {
+    modelTrendCanvas.addEventListener("click", () => {
+      if (modelTrendChart) openGraphPreview(modelTrendChart, "Selected Model Continuous Trend");
+    });
+  }
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && confidenceHelpModal && !confidenceHelpModal.classList.contains("hidden")) {
       setConfidenceHelpModalOpen(false);
     }
     if (e.key === "Escape" && modelComparisonModal && !modelComparisonModal.classList.contains("hidden")) {
       setModelComparisonModalOpen(false);
+    }
+    if (e.key === "Escape" && graphPreviewModal && !graphPreviewModal.classList.contains("hidden")) {
+      setGraphPreviewModalOpen(false);
     }
   });
   setActiveModel(activeModel);
