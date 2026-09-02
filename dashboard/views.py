@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, time, timezone as dt_timezone, timedelta
@@ -35,6 +36,10 @@ def _set_owner_key(request, key: str) -> None:
 
 def _blu_creds(request) -> dict | None:
     return request.session.get("blu_creds")
+
+
+def _is_demo_creds(creds: dict | None) -> bool:
+    return bool(creds and creds.get("demo"))
 
 
 def _require_blu(view_func):
@@ -115,6 +120,14 @@ def api_blu_login(request):
     upass = (data.get("upass") or "").strip()
     if not uname or not upass:
         return JsonResponse({"error": "Missing credentials"}, status=400)
+    if (
+        settings.DEMO_LOGIN_ENABLED
+        and uname == settings.DEMO_LOGIN_USERNAME
+        and upass == settings.DEMO_LOGIN_PASSWORD
+    ):
+        request.session["blu_creds"] = {"uname": uname, "upass": upass, "demo": True}
+        _set_owner_key(request, "demo-reviewer")
+        return JsonResponse({"ok": True, "demo": True})
     try:
         bluconsole.blu_login(uname, upass)
     except Exception as exc:  # noqa: BLE001
@@ -132,7 +145,7 @@ def api_blu_logout(request):
 @require_http_methods(["GET"])
 def api_blu_status(request):
     creds = _blu_creds(request)
-    return JsonResponse({"authenticated": bool(creds)})
+    return JsonResponse({"authenticated": bool(creds), "demo": _is_demo_creds(creds)})
 
 
 @require_http_methods(["GET"])
@@ -140,6 +153,8 @@ def api_blu_devices(request):
     creds = _blu_creds(request)
     if not creds:
         return JsonResponse({"error": "Not authenticated"}, status=401)
+    if _is_demo_creds(creds):
+        return JsonResponse({"devices": _demo_devices()})
     try:
         xml = bluconsole.get_devices(creds["uname"], creds["upass"], children=False)
         devices = parse_devices(xml)
@@ -157,6 +172,8 @@ def api_blu_measurements(request):
     from_time = request.GET.get("fromTime")
     to_time = request.GET.get("toTime")
     include_all = request.GET.get("includeAll") == "true"
+    if _is_demo_creds(creds):
+        return JsonResponse({"points": _demo_measurements(device_id=device_id, from_time=from_time, to_time=to_time)})
     try:
         xml = bluconsole.get_measurements(
             creds["uname"],
@@ -461,6 +478,93 @@ def api_ai_chat_attachment(request):
 def _extract_logger_id(prompt: str) -> str | None:
     matches = re.findall(r"\b\d{3,}\b", prompt)
     return matches[0] if matches else None
+
+
+def _demo_devices() -> list[dict]:
+    return [
+        {
+            "id": "1001",
+            "label": "Cold Room A",
+            "org": "Auburn Poultry Science",
+            "min_temp": 0.0,
+            "max_temp": 4.5,
+            "vrn": "DEMO-1.0",
+            "battery": 92.0,
+            "type": "htdl",
+        },
+        {
+            "id": "1002",
+            "label": "Processing Line",
+            "org": "Auburn Poultry Science",
+            "min_temp": 0.0,
+            "max_temp": 5.0,
+            "vrn": "DEMO-1.0",
+            "battery": 18.0,
+            "type": "tdl",
+        },
+        {
+            "id": "1003",
+            "label": "Transport Tote",
+            "org": "Auburn Poultry Science",
+            "min_temp": -1.0,
+            "max_temp": 4.0,
+            "vrn": "DEMO-1.0",
+            "battery": 63.0,
+            "type": "ltdl",
+        },
+    ]
+
+
+def _demo_measurements(
+    device_id: str | None = None,
+    from_time: str | int | None = None,
+    to_time: str | int | None = None,
+) -> list[dict]:
+    devices = _demo_devices()
+    if device_id:
+        devices = [d for d in devices if str(d["id"]) == str(device_id)]
+    now = int(datetime.now(tz=dt_timezone.utc).timestamp())
+    try:
+        end = int(to_time) if to_time else now
+    except (TypeError, ValueError):
+        end = now
+    try:
+        start = int(from_time) if from_time else end - 48 * 3600
+    except (TypeError, ValueError):
+        start = end - 48 * 3600
+    if start >= end:
+        start = end - 48 * 3600
+
+    span = end - start
+    step = max(900, span // 96)
+    patterns = {
+        "1001": {"base": 2.2, "amp": 0.7, "spike": 0.0, "hum": 74.0},
+        "1002": {"base": 4.1, "amp": 1.1, "spike": 2.8, "hum": 68.0},
+        "1003": {"base": 1.4, "amp": 1.6, "spike": 1.2, "hum": 71.0},
+    }
+    points = []
+    for dev in devices:
+        did = str(dev["id"])
+        p = patterns.get(did, patterns["1001"])
+        idx = 0
+        ts = start
+        while ts <= end:
+            day_phase = ((ts - start) / max(span, 1)) * 6.28318 * 2
+            temp = p["base"] + p["amp"] * math.sin(day_phase)
+            if p["spike"] and 0.42 < ((ts - start) / max(span, 1)) < 0.52:
+                temp += p["spike"]
+            points.append(
+                {
+                    "id": did,
+                    "type": dev["type"],
+                    "t": round(temp, 2),
+                    "h": round(p["hum"] + (idx % 7) * 0.3, 2) if dev["type"] == "htdl" else None,
+                    "utc": ts,
+                }
+            )
+            idx += 1
+            ts += step
+    return points
 
 
 def _wants_logger_status(prompt: str) -> bool:

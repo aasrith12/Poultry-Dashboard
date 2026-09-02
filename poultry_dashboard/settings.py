@@ -85,6 +85,9 @@ BLU_BASE = (
 PROJECT_NAME = "Poultry Dashboard"
 OPENAI_API_KEY = _env_get("OPENAI_API_KEY", "")
 OPENAI_MODEL = _env_get("OPENAI_MODEL", "gpt-4o-mini")
+DEMO_LOGIN_ENABLED = _env_bool("DEMO_LOGIN_ENABLED", default=DEBUG)
+DEMO_LOGIN_USERNAME = _env_get("DEMO_LOGIN_USERNAME", "demo")
+DEMO_LOGIN_PASSWORD = _env_get("DEMO_LOGIN_PASSWORD", "demo")
 
 
 # Application definition

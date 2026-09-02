@@ -25,3 +25,20 @@ python manage.py runserver
 ```
 
 Open `http://127.0.0.1:8000/`.
+
+## Reviewer / demo login
+
+For reviewers who do not have BluConsole credentials, local demo login is enabled when `DEBUG=1`.
+
+```text
+Username: demo
+Password: demo
+```
+
+The demo login uses generated sample devices and measurements, so Sensor Feed, Visualizations, AI Estimation, and AI ChatBot can be examined without contacting BluConsole.
+
+To disable it, set:
+
+```powershell
+$env:DEMO_LOGIN_ENABLED="0"
+```
